@@ -169,14 +169,26 @@ export const getContract = () => {
  */
 export const storeMessageMetadata = async (sender, receiver, messageHash) => {
   try {
-    const contract = getContract();
-    return await contract.methods.storeMetadata(receiver, messageHash).send({ 
-      from: sender,
-      gas: 300000 // Add explicit gas limit
-    });
+    const web3 = getWeb3();
+    const accounts = await web3.eth.getAccounts();
+    const chatMetadata = new web3.eth.Contract(
+      ChatMetadataABI.abi,
+      process.env.REACT_APP_CONTRACT_ADDRESS
+    );
+
+    // Get current block timestamp
+    const block = await web3.eth.getBlock('latest');
+    const timestamp = block.timestamp;
+
+    // Store the message hash on-chain (timestamp is set by the contract)
+    await chatMetadata.methods
+      .storeMetadata(receiver, messageHash)
+      .send({ from: accounts[0] });
+
+    return true;
   } catch (error) {
     console.error("❌ Error storing message metadata:", error);
-    throw new Error(`Failed to store message: ${error.message}`);
+    throw error;
   }
 };
 
@@ -197,31 +209,52 @@ export const storeMessageMetadata = async (sender, receiver, messageHash) => {
  * @param {number} [retries=3] - number of retry attempts
  * @throws {Error} If message not found or other error occurs
  */
-export const getMessageMetadata = async (id, retries = 3) => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
+export const getMessageMetadata = async (messageId, maxRetries = 3) => {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const contract = getContract();
-      const metadata = await contract.methods.getMetadata(id).call();
+      const web3 = getWeb3();
+      const chatMetadata = new web3.eth.Contract(
+        ChatMetadataABI.abi,
+        process.env.REACT_APP_CONTRACT_ADDRESS
+      );
+
+      // Get message data from the smart contract
+      const message = await chatMetadata.methods.messages(messageId).call();
+
+      // Check if message exists (non-zero address)
+      if (message.sender === "0x0000000000000000000000000000000000000000") {
+        throw new Error("Message not found");
+      }
+
+      // If no transaction hash is available, use the current block timestamp
+      let timestamp = Math.floor(Date.now() / 1000); // Fallback to current time
       
-      // Check if the metadata exists (not all zeros address)
-      if (metadata && metadata.sender === '0x0000000000000000000000000000000000000000') {
-        throw new Error('Message not found');
+      // Only try to get the block if we have a valid transaction hash
+      if (message.transactionHash && message.transactionHash !== '0x') {
+        try {
+          const tx = await web3.eth.getTransaction(message.transactionHash);
+          if (tx && tx.blockNumber) {
+            const block = await web3.eth.getBlock(tx.blockNumber);
+            if (block && block.timestamp) {
+              timestamp = block.timestamp;
+            }
+          }
+        } catch (txError) {
+          console.warn('Failed to get transaction details, using fallback timestamp:', txError);
+        }
       }
       
-      return metadata;
+      return {
+        sender: message.sender,
+        receiver: message.receiver,
+        messageHash: message.messageHash,
+        timestamp: timestamp,
+        transactionHash: message.transactionHash || '0x0'
+      };
     } catch (error) {
-      const isLastAttempt = attempt === retries;
-      const isCircuitBreakerError = error.message.includes('circuit breaker') || 
-                                  (error.data && error.data.message && 
-                                   error.data.message.includes('circuit breaker'));
-      
-      if (isCircuitBreakerError && !isLastAttempt) {
-        // Wait before retrying (exponential backoff)
-        const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s, etc.
-        console.warn(`Circuit breaker open, retrying in ${delay}ms (attempt ${attempt}/${retries})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
+      lastError = error;
       
       if (error.message.includes('revert') || 
           error.message.includes('invalid opcode') ||
@@ -229,13 +262,20 @@ export const getMessageMetadata = async (id, retries = 3) => {
         throw new Error('Message not found or invalid ID');
       }
       
-      console.error(`❌ Error fetching message metadata (attempt ${attempt}):`, error);
+      console.error(`❌ Error fetching message metadata (attempt ${attempt}/${maxRetries}):`, error);
       
-      if (isLastAttempt) {
-        throw new Error(`Failed to fetch message after ${retries} attempts: ${error.message}`);
+      // If this was the last attempt, throw the error
+      if (attempt === maxRetries) {
+        throw new Error(`Failed to fetch message after ${maxRetries} attempts: ${error.message}`);
       }
+      
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
     }
   }
+  
+  // This should never be reached, but just in case
+  throw lastError || new Error('Unknown error occurred while fetching message');
 };
 
 /**

@@ -8,7 +8,7 @@ import { initWeb3 } from "./utils/blockchain";
 function App() {
   const [walletAddress, setWalletAddress] = useState(localStorage.getItem("walletAddress") || "");
 
-  // Keep wallet address synced with localStorage
+  // Sync wallet address with localStorage
   useEffect(() => {
     if (walletAddress) {
       localStorage.setItem("walletAddress", walletAddress);
@@ -17,20 +17,47 @@ function App() {
     }
   }, [walletAddress]);
 
-  // Optional: auto-connect wallet on page load
+  // Auto-connect wallet on page load
   useEffect(() => {
     const setup = async () => {
-      if (window.ethereum && !walletAddress) {
+      if (window.ethereum && walletAddress) {
         try {
           const { account } = await initWeb3();
-          if (account) setWalletAddress(account);
-        } catch (err) {
-          console.warn("Auto-connect failed:", err);
+          if (account && account.toLowerCase() !== walletAddress.toLowerCase()) {
+            setWalletAddress(account);
+          }
+        } catch (error) {
+          console.error("Auto-connect failed:", error);
+          setWalletAddress(""); // Clear if there's an error
         }
       }
     };
     setup();
+
+    // Listen for account changes
+    const handleAccountsChanged = (accounts) => {
+      if (accounts.length === 0) {
+        // MetaMask is locked or user disconnected all accounts
+        setWalletAddress("");
+      } else if (accounts[0] !== walletAddress) {
+        setWalletAddress(accounts[0]);
+      }
+    };
+
+    if (window.ethereum) {
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+    }
+
+    return () => {
+      if (window.ethereum?.removeListener) {
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+      }
+    };
   }, [walletAddress]);
+
+  const handleLogout = () => {
+    setWalletAddress("");
+  };
 
   return (
     <Router>
@@ -47,11 +74,23 @@ function App() {
         />
         <Route
           path="/home"
-          element={walletAddress ? <Home walletAddress={walletAddress} /> : <Navigate to="/" />}
+          element={
+            walletAddress ? (
+              <Home walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
         />
         <Route
           path="/chat/:friendAddress"
-          element={walletAddress ? <Chat walletAddress={walletAddress} /> : <Navigate to="/" />}
+          element={
+            walletAddress ? (
+              <Chat walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
         />
       </Routes>
     </Router>

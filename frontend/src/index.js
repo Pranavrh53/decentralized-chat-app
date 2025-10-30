@@ -1,17 +1,25 @@
+// Polyfills and globals
+import { Buffer } from 'buffer';
+import process from 'process';
+import stream from 'stream-browserify';
+
+// React imports
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
 
+// App imports
+import App from './App';
+import './index.css';
+
+// Set up globals
+window.Buffer = Buffer;
+window.process = process;
+window.stream = stream;
+
+// Create root
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
