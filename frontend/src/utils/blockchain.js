@@ -169,26 +169,40 @@ export const getContract = () => {
  */
 export const storeMessageMetadata = async (sender, receiver, messageHash) => {
   try {
-    const web3 = getWeb3();
+    const { web3, contract } = await initWeb3();
     const accounts = await web3.eth.getAccounts();
-    const chatMetadata = new web3.eth.Contract(
-      ChatMetadataABI.abi,
-      process.env.REACT_APP_CONTRACT_ADDRESS
-    );
+    const from = accounts[0];
 
-    // Get current block timestamp
-    const block = await web3.eth.getBlock('latest');
-    const timestamp = block.timestamp;
+    console.log('Storing metadata:', {
+      sender,
+      receiver,
+      messageHash,
+      from
+    });
 
-    // Store the message hash on-chain (timestamp is set by the contract)
-    await chatMetadata.methods
+    // Store the message hash on the blockchain
+    const tx = await contract.methods
       .storeMetadata(receiver, messageHash)
-      .send({ from: accounts[0] });
+      .send({ 
+        from, 
+        gas: 500000, // Increased gas limit
+        gasPrice: web3.utils.toWei('2', 'gwei') // Explicit gas price
+      });
 
-    return true;
+    console.log('Transaction successful:', tx.transactionHash);
+    return tx.transactionHash;
   } catch (error) {
     console.error("❌ Error storing message metadata:", error);
-    throw error;
+    
+    // Add more detailed error information
+    if (error.receipt) {
+      console.error('Transaction receipt:', error.receipt);
+    }
+    if (error.data) {
+      console.error('Error data:', error.data);
+    }
+    
+    throw new Error(`Failed to store message: ${error.message}`);
   }
 };
 
@@ -228,44 +242,42 @@ export const getMessageMetadata = async (messageId, maxRetries = 3) => {
         throw new Error("Message not found");
       }
 
-      // If no transaction hash is available, use the current block timestamp
-      let timestamp = Math.floor(Date.now() / 1000); // Fallback to current time
-      
-      // Only try to get the block if we have a valid transaction hash
-      if (message.transactionHash && message.transactionHash !== '0x') {
-        try {
-          const tx = await web3.eth.getTransaction(message.transactionHash);
-          if (tx && tx.blockNumber) {
-            const block = await web3.eth.getBlock(tx.blockNumber);
-            if (block && block.timestamp) {
-              timestamp = block.timestamp;
-            }
-          }
-        } catch (txError) {
-          console.warn('Failed to get transaction details, using fallback timestamp:', txError);
-        }
-      }
+      // The contract's message structure is:
+      // struct MessageMeta {
+      //   address sender;
+      //   address receiver;
+      //   uint256 timestamp;
+      //   bytes32 messageHash;
+      // }
       
       return {
         sender: message.sender,
         receiver: message.receiver,
         messageHash: message.messageHash,
-        timestamp: timestamp,
-        transactionHash: message.transactionHash || '0x0'
+        timestamp: Number(message.timestamp) * 1000, // Convert to milliseconds
+        // No transaction hash in the contract, so we'll use a placeholder
+        transactionHash: '0x0'
       };
     } catch (error) {
       lastError = error;
       
       if (error.message.includes('revert') || 
           error.message.includes('invalid opcode') ||
-          error.message.includes('not found')) {
+          error.message.includes('not found') ||
+          error.message.includes('out of gas') ||
+          error.message.includes('out of gas') ||
+          error.message.includes('Parameter decoding error')) {
+        // If it's an invalid ID or decoding error, don't retry
         throw new Error('Message not found or invalid ID');
       }
       
       console.error(`❌ Error fetching message metadata (attempt ${attempt}/${maxRetries}):`, error);
       
-      // If this was the last attempt, throw the error
+      // If this was the last attempt, throw a more specific error
       if (attempt === maxRetries) {
+        if (error.message.includes('Parameter decoding error')) {
+          throw new Error('Invalid message ID or contract state');
+        }
         throw new Error(`Failed to fetch message after ${maxRetries} attempts: ${error.message}`);
       }
       

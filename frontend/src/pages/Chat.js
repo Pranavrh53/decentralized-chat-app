@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+
 import { 
   initWeb3,
   storeMessageMetadata,
   getMessageMetadata,
-  getWeb3
+  getWeb3,
+  hashMessage 
 } from "../utils/blockchain";
 import { 
   Box, 
@@ -23,6 +25,7 @@ import {
 } from "@mui/material";
 import { Send as SendIcon, AccountCircle, Refresh as RefreshIcon } from "@mui/icons-material";
 import { formatDistanceToNow } from 'date-fns';
+import { createPeer, setupSignaling, cleanup, setGlobalCallbacks } from "../utils/webrtc";
 
 function Chat({ walletAddress }) {
   const [messages, setMessages] = useState([]);
@@ -34,6 +37,7 @@ function Chat({ walletAddress }) {
     if (msg.time instanceof Date) return msg.time;
     return new Date();
   };
+  
   const [receiver, setReceiver] = useState(
     localStorage.getItem('lastChatPartner') || ''
   );
@@ -41,6 +45,9 @@ function Chat({ walletAddress }) {
   const [account, setAccount] = useState(walletAddress);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [isInitiator, setIsInitiator] = useState(false);
+  const peerRef = useRef(null);
 
   // Load messages from blockchain
   const loadMessages = useCallback(async () => {
@@ -59,7 +66,10 @@ function Chat({ walletAddress }) {
               return {
                 ...metadata,
                 id: i,
-                time: new Date()
+                time: new Date(),
+                content: '',  // Placeholder—real content from P2P
+                incoming: metadata.sender !== account,
+                from: metadata.sender
               };
             }
             return null;
@@ -115,46 +125,266 @@ function Chat({ walletAddress }) {
     };
   }, [loadMessages]);
 
+  // Handle incoming WebRTC messages
+  const handleIncomingMessage = useCallback(async (data) => {
+    try {
+      console.log('[Chat] Raw incoming data:', data);
+      let message, messageObj, isEncrypted = false;
+      
+      // First, try to parse as JSON
+      try {
+        messageObj = typeof data === 'string' ? JSON.parse(data) : data;
+        if (messageObj && typeof messageObj === 'object') {
+          // It's a proper message object
+          message = messageObj.text || messageObj.content || JSON.stringify(messageObj);
+          console.log('[Chat] Received message object:', messageObj);
+        } else {
+          message = String(data);
+        }
+      } catch (e) {
+        // If not JSON, handle as string or encrypted
+        if (typeof data === 'string' && (data.startsWith('data:') || /^[A-Za-z0-9+/=]+$/.test(data))) {
+          try {
+            message = atob(data);
+            isEncrypted = true;
+            console.log('[Chat] Decrypted message:', message);
+          } catch (decryptErr) {
+            console.warn('[Chat] Failed to decrypt message, treating as plaintext');
+            message = data;
+          }
+        } else {
+          message = typeof data === 'string' ? data : 
+                   data.text || data.content || 
+                   (data.data ? new TextDecoder().decode(data.data) : String(data));
+        }
+      }
+      
+      console.log('[Chat] Received message:', message);
+      
+      // Add to messages if it's a valid message
+      if (message && message.trim()) {
+        const timestamp = messageObj?.timestamp || new Date().toISOString();
+        const sender = messageObj?.sender || receiver; // Default to receiver if not specified
+        
+        const newMessage = {
+          id: messageObj?.id || Date.now(),
+          sender: sender,
+          text: message,
+          content: message,  // For compatibility
+          timestamp: timestamp,
+          time: new Date(timestamp),  // Convert to Date object
+          incoming: sender !== account,  // True if not from current user
+          type: messageObj?.type || 'text',
+          status: 'received'
+        };
+        
+        console.log('[Chat] Processed incoming message:', newMessage);
+        
+        setMessages(prev => [...prev, newMessage]);
+        
+        // Save to local storage
+        const chatKey = `chat_${account}_${receiver}`;
+        const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
+        chatHistory.push(newMessage);
+        localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+
+        // Hash & store metadata on chain (for encrypted messages or if enabled)
+        if (isEncrypted) {
+          try {
+            const hash = await hashMessage(message);
+            await storeMessageMetadata(receiver, account, hash);
+            console.log('[Chat] Stored message metadata on chain:', hash);
+          } catch (err) {
+            console.error('Error storing message metadata:', err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error handling incoming message:', err);
+      setError('Failed to process incoming message: ' + (err.message || 'Unknown error'));
+    }
+  }, [receiver, account]);
+
+  // Auto-start as responder if receiver set (e.g., from URL params)
+  useEffect(() => {
+  if (receiver && receiver !== account && !isInitiator && !connected) {
+    console.log('[Chat] Setting up auto-responder for', receiver);
+    setGlobalCallbacks(
+      (data) => handleIncomingMessage(data),
+      () => setConnected(true),
+      (err) => { 
+        console.error('[Chat] Auto-responder error:', err);
+        setError(err.message); 
+        setConnected(false); 
+      }
+    );
+    
+    // Setup signaling for auto-responder
+    setupSignaling(account, (signal) => {
+      console.log('[Chat] Auto-responder received signal');
+      if (!peerRef.current) {
+        console.log('[Chat] Creating responder peer');
+        peerRef.current = createPeer(
+          false, // Not initiator
+          account,
+          receiver,
+          (data) => handleIncomingMessage(data),
+          () => setConnected(true),
+          (err) => setError(err.message)
+        );
+      }
+      if (peerRef.current && peerRef.current._pc.signalingState !== 'stable') {
+        console.log('[Chat] Processing signal in auto-responder');
+        peerRef.current.signal(signal);
+      }
+    }, receiver);
+    
+    // Cleanup
+    return () => {
+      console.log('[Chat] Cleaning up auto-responder');
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
+    };
+  }
+}, [receiver, account, isInitiator, connected, handleIncomingMessage]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       localStorage.setItem('lastChatPartner', receiver);
+      cleanup();  // WebRTC cleanup
     };
   }, [receiver]);
 
-  // Send message via blockchain
+  // Start P2P chat as initiator
+  const startChat = () => {
+    if (!receiver || receiver === account) {
+      setError('Invalid receiver');
+      return;
+    }
+    if (peerRef.current) {  // Already connected?
+      setConnected(true);
+      return;
+    }
+    setError(null);
+    setIsInitiator(true);  // Only initiator clicks this
+    setConnected(false);
+
+    // Set globals for auto-responder fallback
+    setGlobalCallbacks(
+      (data) => handleIncomingMessage(data),
+      () => setConnected(true),
+      (err) => { setError(err.message); setConnected(false); }
+    );
+
+    // Setup signaling (handles auto-responder if offer arrives first)
+    setupSignaling(account, (signal) => {
+      // State guard: Only signal if appropriate
+      if (!peerRef.current || peerRef.current._pc.signalingState === 'stable') {
+        console.log('[Chat] Skipping signal in stable state');
+        return;
+      }
+      peerRef.current.signal(signal);
+    }, receiver);  // Pass remote for auto-create
+
+    // Manual create as initiator
+    peerRef.current = createPeer(
+      true,  // Initiator
+      account,
+      receiver,
+      (data) => handleIncomingMessage(data),
+      () => setConnected(true),
+      (err) => { setError(err.message); setConnected(false); }
+    );
+  };
+
+
+  // Send message via P2P
   const handleSendMessage = async () => {
-    if (!message.trim() || !receiver.trim()) return;
+    if (!message.trim()) {
+      setError('Message cannot be empty');
+      return;
+    }
+
+    if (!connected || !peerRef.current) {
+      setError('Not connected to peer');
+      return;
+    }
 
     try {
-      // Store message metadata on blockchain
-      const web3 = getWeb3();
-      const messageHash = web3.utils.sha3(message);
-      
-      await storeMessageMetadata(
-        receiver,  // to
-        account,   // from
-        messageHash
-      );
+      // Create a message object with metadata
+      const messageObj = {
+        text: message,
+        timestamp: new Date().toISOString(),
+        sender: account,
+        type: 'text'
+      };
 
-      // Update UI with new message
-      setMessages(prev => [...prev, {
+      // Convert to JSON string and send
+      const messageString = JSON.stringify(messageObj);
+      console.log('[Chat] Sending message:', messageString);
+      
+      // Send the message
+      peerRef.current.send(messageString);
+
+      // Add to UI immediately (optimistic update)
+      const newMessage = {
         id: Date.now(),
         content: message,
+        text: message,
         sender: account,
         time: new Date(),
-        incoming: false
-      }]);
-      
-      setMessage('');
+        timestamp: new Date().toISOString(),
+        incoming: false,
+        status: 'sending'
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+      setMessage(''); // Clear input
+
+      // Store metadata in the background
+      try {
+        const hash = await hashMessage(message);
+        await storeMessageMetadata(account, receiver, hash);
+        
+        // Update message status
+        setMessages(prev => prev.map(msg => 
+          msg.id === newMessage.id 
+            ? { ...msg, status: 'sent', hash } 
+            : msg
+        ));
+      } catch (err) {
+        console.error('Error storing message metadata:', err);
+        // Update message status to show error
+        setMessages(prev => prev.map(msg => 
+          msg.id === newMessage.id 
+            ? { ...msg, status: 'error', error: 'Failed to store on blockchain' } 
+            : msg
+        ));
+      }
     } catch (err) {
-      console.error('Error sending message:', err);
-      setError('Failed to send message: ' + err.message);
+      console.error('Send error:', err);
+      setError('Failed to send message: ' + (err.message || 'Unknown error'));
+      
+      // Update the last message status if it failed to send
+      setMessages(prev => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.sender === account) {
+          return [
+            ...prev.slice(0, -1),
+            { ...lastMsg, status: 'error', error: 'Failed to send' }
+          ];
+        }
+        return prev;
+      });
     }
   };
 
   // Handle enter key press
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !loading) {
+    if (e.key === 'Enter' && !e.shiftKey && !loading && connected) {
       e.preventDefault();
       handleSendMessage();
     }
@@ -212,6 +442,21 @@ function Chat({ walletAddress }) {
             />
           </Box>
 
+          {/* NEW: Start Chat Button */}
+          <Button
+            variant="outlined"
+            onClick={startChat}
+            disabled={!receiver.trim() || (connected && isInitiator) || (receiver === account)}
+            sx={{ mb: 2, minWidth: '200px' }}
+          >
+            {connected 
+              ? 'Connected' 
+              : isInitiator 
+                ? 'Start Chat (Initiator)' 
+                : 'Ready to Receive Connection'
+            }
+          </Button>
+
           <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
             <TextField
               fullWidth
@@ -222,14 +467,14 @@ function Chat({ walletAddress }) {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              disabled={!receiver.trim() || loading}
+              disabled={!receiver.trim() || !connected || loading}
               size="small"
             />
             <Button
               variant="contained"
               color="primary"
               onClick={handleSendMessage}
-              disabled={!message.trim() || !receiver.trim() || loading}
+              disabled={!message.trim() || !connected || loading}
               sx={{ minWidth: 100, height: 40, alignSelf: 'flex-end' }}
             >
               {loading ? <CircularProgress size={24} /> : <SendIcon />}
@@ -281,10 +526,10 @@ function Chat({ walletAddress }) {
                               (msg.from ? `${msg.from.substring(0, 6)}...${msg.from.slice(-4)}` : 'Unknown') : 
                               'You'}
                             {' • '}
-                            {msg.time ? formatDistanceToNow(new Date(msg.time)) : 'just now'}
+                            {msg.time ? formatDistanceToNow(getMessageTime(msg)) : 'just now'}
                           </Typography>
                           <Typography variant="body1" sx={{ mt: 0.5, wordBreak: 'break-word' }}>
-                            {msg.content}
+                            {msg.content || 'Content via P2P (metadata only)'}  {/* Fallback for chain-only */}
                           </Typography>
                         </Box>
                       }
@@ -321,7 +566,7 @@ function Chat({ walletAddress }) {
                 No messages yet
               </Typography>
               <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                All messages are stored on the blockchain
+                All messages are stored on the blockchain (metadata only)
               </Typography>
             </Box>
           )}
