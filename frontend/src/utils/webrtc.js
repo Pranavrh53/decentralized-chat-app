@@ -28,8 +28,13 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
 
   currentPeer = new Peer({
     initiator,
-    trickle: false,  // Bundle candidates—avoids races
-    config: { iceServers: ICE_SERVERS },
+    trickle: true,  // Enable trickle ICE for faster connection
+    reconnectTimer: 3000,  // Try to reconnect after 3 seconds if disconnected
+    config: { 
+      iceServers: ICE_SERVERS,
+      iceTransportPolicy: 'all',  // Try both relay and direct connections
+      iceCandidatePoolSize: 10
+    },
     objectMode: false,  // Changed to false to handle binary data properly
     channelConfig: {
       ordered: true,
@@ -38,6 +43,7 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
     sdpTransform: (sdp) => {
       // Ensure proper codec priority
       sdp = sdp.replace('useinbandfec=1', 'useinbandfec=1; stereo=1; maxaveragebitrate=510000');
+      console.log('[WebRTC] SDP:', sdp);
       return sdp;
     }
   });
@@ -57,8 +63,20 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   });
 
   currentPeer.on('connect', () => {
-    console.log('[WebRTC] ✅ Connected!');
+    console.log('[WebRTC] ✅ Peer connection established!');
+    console.log('[WebRTC] Connection details:', {
+      localDescription: currentPeer.localDescription,
+      remoteDescription: currentPeer.remoteDescription
+    });
     if (onConnect) onConnect();
+  });
+
+  currentPeer.on('iceStateChange', (state) => {
+    console.log(`[WebRTC] ICE Connection State: ${state}`);
+  });
+
+  currentPeer.on('signalStateChange', (state) => {
+    console.log(`[WebRTC] Signal State: ${state}`);
   });
 
   currentPeer.on('data', (data) => {
@@ -94,11 +112,13 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   });
 
   currentPeer.on('close', () => {
-    console.log('[WebRTC] Connection closed');
+  console.log('[WebRTC] Connection closed');
+  if (currentPeer && currentPeer._pc) {
     console.log('Connection state:', currentPeer._pc.connectionState);
     console.log('ICE connection state:', currentPeer._pc.iceConnectionState);
-    cleanup();
-  });
+  }
+  cleanup();
+});
 
   // 120s timeout (longer for bundle)
   const timeoutId = setTimeout(() => {
