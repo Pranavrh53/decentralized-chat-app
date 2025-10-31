@@ -127,128 +127,119 @@ function Chat({ walletAddress }) {
 
   // Handle incoming WebRTC messages
   const handleIncomingMessage = useCallback(async (data) => {
-    try {
-      console.log('[Chat] Raw incoming data:', data);
-      let message, messageObj, isEncrypted = false;
-      
-      // First, try to parse as JSON
-      try {
-        messageObj = typeof data === 'string' ? JSON.parse(data) : data;
-        if (messageObj && typeof messageObj === 'object') {
-          // It's a proper message object
-          message = messageObj.text || messageObj.content || JSON.stringify(messageObj);
-          console.log('[Chat] Received message object:', messageObj);
-        } else {
-          message = String(data);
-        }
-      } catch (e) {
-        // If not JSON, handle as string or encrypted
-        if (typeof data === 'string' && (data.startsWith('data:') || /^[A-Za-z0-9+/=]+$/.test(data))) {
-          try {
-            message = atob(data);
-            isEncrypted = true;
-            console.log('[Chat] Decrypted message:', message);
-          } catch (decryptErr) {
-            console.warn('[Chat] Failed to decrypt message, treating as plaintext');
-            message = data;
-          }
-        } else {
-          message = typeof data === 'string' ? data : 
-                   data.text || data.content || 
-                   (data.data ? new TextDecoder().decode(data.data) : String(data));
-        }
-      }
-      
-      console.log('[Chat] Received message:', message);
-      
-      // Add to messages if it's a valid message
-      if (message && message.trim()) {
-        const timestamp = messageObj?.timestamp || new Date().toISOString();
-        const sender = messageObj?.sender || receiver; // Default to receiver if not specified
-        
-        const newMessage = {
-          id: messageObj?.id || Date.now(),
-          sender: sender,
-          text: message,
-          content: message,  // For compatibility
-          timestamp: timestamp,
-          time: new Date(timestamp),  // Convert to Date object
-          incoming: sender !== account,  // True if not from current user
-          type: messageObj?.type || 'text',
-          status: 'received'
-        };
-        
-        console.log('[Chat] Processed incoming message:', newMessage);
-        
-        setMessages(prev => [...prev, newMessage]);
-        
-        // Save to local storage
-        const chatKey = `chat_${account}_${receiver}`;
-        const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
-        chatHistory.push(newMessage);
-        localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+    console.log('[Chat] Handler called with:', data, 'Type:', typeof data);
 
-        // Hash & store metadata on chain (for encrypted messages or if enabled)
-        if (isEncrypted) {
-          try {
-            const hash = await hashMessage(message);
-            await storeMessageMetadata(receiver, account, hash);
-            console.log('[Chat] Stored message metadata on chain:', hash);
-          } catch (err) {
-            console.error('Error storing message metadata:', err);
-          }
+    try {
+      let finalText = data;
+
+      // Extract if object/string
+      if (typeof data === 'object' && data.text) {
+        finalText = data.text;
+      } else if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data);
+          finalText = parsed.text || data;
+        } catch (e) {
+          finalText = data;  // Plain text
         }
       }
+
+      console.log('[Chat] Final text:', finalText);
+
+      // Hash & store on chain
+      const hash = await hashMessage(finalText);
+      await storeMessageMetadata(receiver, account, hash);
+
+      // Create and add message to UI
+      const newMsg = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        content: finalText,  // Ensure content is set
+        text: finalText,     // For backward compatibility
+        sender: receiver,
+        from: receiver,
+        time: new Date(),
+        timestamp: new Date().toISOString(),
+        incoming: true,
+        messageHash: hash,
+        status: 'received',
+        type: 'text'
+      };
+
+      console.log('[Chat] New message added to UI:', newMsg);
+
+      // Update state with deduplication
+      setMessages(prevMessages => {
+        const isDuplicate = prevMessages.some(msg => 
+          msg.messageHash === hash || 
+          (msg.sender === newMsg.sender && 
+           msg.content === newMsg.content && 
+           Math.abs(new Date(msg.time) - new Date(newMsg.time)) < 1000)
+        );
+        
+        if (isDuplicate) {
+          console.log('[Chat] Duplicate message detected, skipping');
+          return prevMessages;
+        }
+        
+        return [...prevMessages, newMsg];
+      });
+      
+      // Update local storage
+      const chatKey = `chat_${account}_${receiver}`;
+      const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
+      chatHistory.push(newMsg);
+      localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+
     } catch (err) {
-      console.error('Error handling incoming message:', err);
-      setError('Failed to process incoming message: ' + (err.message || 'Unknown error'));
+      console.error('[Chat] Error processing incoming message:', err);
+      setError('Process failed: ' + (err.message || 'Unknown error'));
     }
   }, [receiver, account]);
 
   // Auto-start as responder if receiver set (e.g., from URL params)
   useEffect(() => {
-  if (receiver && receiver !== account && !isInitiator && !connected) {
-    console.log('[Chat] Setting up auto-responder for', receiver);
-    setGlobalCallbacks(
-      (data) => handleIncomingMessage(data),
-      () => setConnected(true),
-      (err) => { 
-        console.error('[Chat] Auto-responder error:', err);
-        setError(err.message); 
-        setConnected(false); 
-      }
-    );
-    
-    // Setup signaling for auto-responder
-    setupSignaling(account, (signal) => {
-      console.log('[Chat] Auto-responder received signal');
-      if (!peerRef.current) {
-        console.log('[Chat] Creating responder peer');
-        peerRef.current = createPeer(
-          false, // Not initiator
-          account,
-          receiver,
-          (data) => handleIncomingMessage(data),
-          () => setConnected(true),
-          (err) => setError(err.message)
-        );
-      }
-      if (peerRef.current && peerRef.current._pc.signalingState !== 'stable') {
-        console.log('[Chat] Processing signal in auto-responder');
-        peerRef.current.signal(signal);
-      }
-    }, receiver);
-    
-    // Cleanup
-    return () => {
-      console.log('[Chat] Cleaning up auto-responder');
-      if (peerRef.current) {
-        peerRef.current.destroy();
-        peerRef.current = null;
-      }
-    };
-  }
-}, [receiver, account, isInitiator, connected, handleIncomingMessage]);
+    if (receiver && receiver !== account && !isInitiator && !connected) {
+      console.log('[Chat] Setting up auto-responder for', receiver);
+      setGlobalCallbacks(
+        (data) => handleIncomingMessage(data),
+        () => setConnected(true),
+        (err) => { 
+          console.error('[Chat] Auto-responder error:', err);
+          setError(err.message); 
+          setConnected(false); 
+        }
+      );
+      
+      // Setup signaling for auto-responder
+      setupSignaling(account, (signal) => {
+        console.log('[Chat] Auto-responder received signal');
+        if (!peerRef.current) {
+          console.log('[Chat] Creating responder peer');
+          peerRef.current = createPeer(
+            false, // Not initiator
+            account,
+            receiver,
+            (data) => handleIncomingMessage(data),
+            () => setConnected(true),
+            (err) => setError(err.message)
+          );
+        }
+        if (peerRef.current && peerRef.current._pc.signalingState !== 'stable') {
+          console.log('[Chat] Processing signal in auto-responder');
+          peerRef.current.signal(signal);
+        }
+      }, receiver);
+      
+      // Cleanup
+      return () => {
+        console.log('[Chat] Cleaning up auto-responder');
+        if (peerRef.current) {
+          peerRef.current.destroy();
+          peerRef.current = null;
+        }
+      };
+    }
+  }, [receiver, account, isInitiator, connected, handleIncomingMessage]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -314,20 +305,9 @@ function Chat({ walletAddress }) {
     }
 
     try {
-      // Create a message object with metadata
-      const messageObj = {
-        text: message,
-        timestamp: new Date().toISOString(),
-        sender: account,
-        type: 'text'
-      };
-
-      // Convert to JSON string and send
-      const messageString = JSON.stringify(messageObj);
-      console.log('[Chat] Sending message:', messageString);
-      
-      // Send the message
-      peerRef.current.send(messageString);
+      // Send plain text message
+      console.log('[Chat] Sending message:', message);
+      peerRef.current.send(message);
 
       // Add to UI immediately (optimistic update)
       const newMessage = {

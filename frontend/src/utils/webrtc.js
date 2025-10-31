@@ -62,23 +62,16 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   });
 
   currentPeer.on('data', (data) => {
+    console.log('[WebRTC] Received raw data:', data);
+    
     try {
-      let msg;
-      if (typeof data === 'string') {
-        msg = data;
-      } else if (data instanceof ArrayBuffer) {
-        msg = new TextDecoder().decode(data);
-      } else if (data.data) {
-        // Handle ArrayBufferView
-        msg = new TextDecoder().decode(data.data || data);
-      } else {
-        msg = data.toString();
-      }
-      console.log('[WebRTC] Received raw data:', data);
-      console.log('[WebRTC] Decoded message:', msg);
-      if (onData) onData(msg);
+      // Convert buffer to string if needed
+      const message = typeof data === 'string' ? data : data.toString('utf8');
+      console.log('[WebRTC] Decoded message:', message);
+      
+      if (onData) onData(message);
     } catch (err) {
-      console.error('[WebRTC] Error processing message:', err);
+      console.error('[WebRTC] Decode error:', err, 'Raw:', data);
     }
   });
 
@@ -94,11 +87,13 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   });
 
   currentPeer.on('close', () => {
-    console.log('[WebRTC] Connection closed');
+  console.log('[WebRTC] Connection closed');
+  if (currentPeer && currentPeer._pc) {
     console.log('Connection state:', currentPeer._pc.connectionState);
     console.log('ICE connection state:', currentPeer._pc.iceConnectionState);
-    cleanup();
-  });
+  }
+  cleanup();
+});
 
   // 120s timeout (longer for bundle)
   const timeoutId = setTimeout(() => {
