@@ -145,12 +145,14 @@ function Chat({ walletAddress }) {
         finalText = data.text || data.content || JSON.stringify(data);
       }
 
-      // Placeholder decrypt (skip for now)
-      // finalText = await decryptMessage(finalText);
-
-      // Hash & store on chain
-      const hash = await hashMessage(finalText);
-      await storeMessageMetadata(receiver, account, hash);  // Incoming: receiver as sender
+      try {
+        // Hash & store on chain
+        const hash = await hashMessage(finalText);
+        await storeMessageMetadata(receiver, account, hash);  // Incoming: receiver as sender
+      } catch (err) {
+        console.error('[Chat] Error storing message metadata:', err);
+        // Continue processing even if storage fails
+      }
 
       // Create new message object
       const newMsg = {
@@ -177,81 +179,111 @@ function Chat({ walletAddress }) {
       const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
       chatHistory.push(newMsg);
       localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+      }
+    } catch (e) {
+      // If not JSON, handle as string or encrypted
+      if (typeof data === 'string' && (data.startsWith('data:') || /^[A-Za-z0-9+/=]+$/.test(data))) {
+        try {
+          message = atob(data);
+          isEncrypted = true;
+          console.log('[Chat] Decrypted message:', message);
+        } catch (decryptErr) {
+          console.warn('[Chat] Failed to decrypt message, treating as plaintext');
+          message = data;
+        }
+      } else {
+        message = typeof data === 'string' ? data : 
+                 data.text || data.content || 
+                 (data.data ? new TextDecoder().decode(data.data) : String(data));
+      }
+    }
+    
+    console.log('[Chat] Received message:', message);
+    
+    // Add to messages if it's a valid message
+    if (message && message.trim()) {
+      const timestamp = messageObj?.timestamp || new Date().toISOString();
+      const sender = messageObj?.sender || receiver; // Default to receiver if not specified
+      
+      const newMessage = {
+        id: messageObj?.id || Date.now(),
+        sender: sender,
+        text: message,
+        content: message,  // For compatibility
+        timestamp: timestamp,
+        time: new Date(timestamp),  // Convert to Date object
+        incoming: sender !== account,  // True if not from current user
+        type: messageObj?.type || 'text',
+        status: 'received'
+      };
+      
+      console.log('[Chat] Processed incoming message:', newMessage);
+      
+      setMessages(prev => [...prev, newMessage]);
+      
+      // Save to local storage
+      const chatKey = `chat_${account}_${receiver}`;
+      const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
+      chatHistory.push(newMessage);
+      localStorage.setItem(chatKey, JSON.stringify(chatHistory));
 
-    } catch (err) {
-      console.error('[Chat] Error processing incoming message:', err);
-      setError('Process failed: ' + (err.message || 'Unknown error'));
+      // Hash & store metadata on chain (for encrypted messages or if enabled)
+      if (isEncrypted) {
+        try {
+          const hash = await hashMessage(message);
+          await storeMessageMetadata(receiver, account, hash);
+          console.log('[Chat] Stored message metadata on chain:', hash);
+        } catch (err) {
+          console.error('Error storing message metadata:', err);
+        }
+      }
     }
   }, [receiver, account]);
 
   // Auto-start as responder if receiver set (e.g., from URL params)
   useEffect(() => {
-    if (receiver && receiver !== account && !isInitiator) {
-      console.log('[Chat] Setting up auto-responder for', receiver);
-      
-      const onConnectHandler = () => {
-        console.log('[Chat] ✅ WebRTC connection established!');
-        setConnected(true);
-      };
-      
-      const onErrorHandler = (err) => {
-        console.error('[Chat] WebRTC error:', err);
-        setError('Connection error: ' + (err.message || 'Unknown error'));
-        setConnected(false);
-      };
-      
-      setGlobalCallbacks(
-        (data) => {
-          console.log('[Chat] Received data via global callback');
-          handleIncomingMessage(data);
-        },
-        onConnectHandler,
-        onErrorHandler
-      );
-      
-      // Setup signaling for auto-responder
-      const handleSignal = (signal) => {
-        console.log(`[Chat] Received signal of type: ${signal.type || 'candidate'}`);
-        
-        if (!peerRef.current) {
-          console.log('[Chat] Creating responder peer');
-          peerRef.current = createPeer(
-            false, // Not initiator
-            account,
-            receiver,
-            (data) => {
-              console.log('[Chat] Received data from peer');
-              handleIncomingMessage(data);
-            },
-            onConnectHandler,
-            onErrorHandler
-          );
-        }
-        
-        if (peerRef.current) {
-          if (peerRef.current._pc && peerRef.current._pc.signalingState !== 'stable') {
-            console.log(`[Chat] Processing ${signal.type} signal in state:`, peerRef.current._pc.signalingState);
-            peerRef.current.signal(signal);
-          } else {
-            console.log(`[Chat] Queuing signal (${signal.type}) - connection not ready`);
-            // Queue the signal if peer isn't ready
-            setTimeout(() => peerRef.current?.signal(signal), 500);
-          }
-        }
-      };
-      
-      setupSignaling(account, handleSignal, receiver);
-      
-      // Cleanup
-      return () => {
-        console.log('[Chat] Cleaning up auto-responder');
-        if (peerRef.current) {
-          peerRef.current.destroy();
-          peerRef.current = null;
-        }
-      };
-    }
-  }, [receiver, account, isInitiator, handleIncomingMessage]);
+  if (receiver && receiver !== account && !isInitiator && !connected) {
+    console.log('[Chat] Setting up auto-responder for', receiver);
+    setGlobalCallbacks(
+      (data) => handleIncomingMessage(data),
+      () => setConnected(true),
+      (err) => { 
+        console.error('[Chat] Auto-responder error:', err);
+        setError(err.message); 
+        setConnected(false); 
+      }
+    );
+    
+    // Setup signaling for auto-responder
+    setupSignaling(account, (signal) => {
+      console.log('[Chat] Auto-responder received signal');
+      if (!peerRef.current) {
+        console.log('[Chat] Creating responder peer');
+        peerRef.current = createPeer(
+          false, // Not initiator
+          account,
+          receiver,
+          (data) => handleIncomingMessage(data),
+          () => setConnected(true),
+          (err) => setError(err.message)
+        );
+      }
+      if (peerRef.current && peerRef.current._pc.signalingState !== 'stable') {
+        console.log('[Chat] Processing signal in auto-responder');
+        peerRef.current.signal(signal);
+      }
+    }, receiver);
+    
+    // Cleanup
+    return () => {
+      console.log('[Chat] Cleaning up auto-responder');
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
+    };
+  }
+}, [receiver, account, isInitiator, connected, handleIncomingMessage]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -267,17 +299,11 @@ function Chat({ walletAddress }) {
       setError('Invalid receiver');
       return;
     }
-    
     if (peerRef.current) {  // Already connected?
-      console.log('[Chat] Using existing peer connection');
       setConnected(true);
       return;
     }
-    
-    console.log('[Chat] Starting new chat as initiator to', receiver);
     setError(null);
-    setConnected(false);
-    setIsInitiator(true);
     setIsInitiator(true);  // Only initiator clicks this
     setConnected(false);
 

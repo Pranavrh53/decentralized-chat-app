@@ -24,115 +24,155 @@ const ICE_SERVERS = [
 export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, onError) => {
   console.log(`[WebRTC] Creating ${initiator ? 'initiator' : 'responder'} peer: ${localAddr} ↔ ${remoteAddr}`);
 
-  if (currentPeer) currentPeer.destroy();
-
-  currentPeer = new Peer({
-    initiator,
-    trickle: true,  // Enable trickle ICE for faster connection
-    reconnectTimer: 3000,  // Try to reconnect after 3 seconds if disconnected
-    config: { 
-      iceServers: ICE_SERVERS,
-      iceTransportPolicy: 'all',  // Try both relay and direct connections
-      iceCandidatePoolSize: 10
-    },
-    objectMode: false,  // Changed to false to handle binary data properly
-    channelConfig: {
-      ordered: true,
-      maxRetransmits: 10
-    },
-    sdpTransform: (sdp) => {
-      // Ensure proper codec priority
-      sdp = sdp.replace('useinbandfec=1', 'useinbandfec=1; stereo=1; maxaveragebitrate=510000');
-      console.log('[WebRTC] SDP:', sdp);
-      return sdp;
-    }
-  });
-
-  if (currentPeer && currentPeer._pc) {
-    currentPeer._pc.addEventListener('iceconnectionstatechange', () => {
-      if (!currentPeer || !currentPeer._pc) return;
-      const state = currentPeer._pc.iceConnectionState;
-      console.log(`[WebRTC] ICE State: ${state}`);
-      if (state === 'failed') onError(new Error('ICE failed'));
-    });
+  if (currentPeer) {
+    console.log('[WebRTC] Destroying existing peer connection');
+    currentPeer.destroy();
+    currentPeer = null;
   }
 
-  currentPeer.on('signal', (data) => {
-    console.log(`[WebRTC] Signal: ${data.type || 'candidate'}`, data);
-    sendSignal(data, localAddr, remoteAddr);
-  });
-
-  currentPeer.on('connect', () => {
-    console.log('[WebRTC] ✅ Peer connection established!');
-    console.log('[WebRTC] Connection details:', {
-      localDescription: currentPeer.localDescription,
-      remoteDescription: currentPeer.remoteDescription
-    });
-    if (onConnect) onConnect();
-  });
-
-  currentPeer.on('iceStateChange', (state) => {
-    console.log(`[WebRTC] ICE Connection State: ${state}`);
-  });
-
-  currentPeer.on('signalStateChange', (state) => {
-    console.log(`[WebRTC] Signal State: ${state}`);
-  });
-
-  currentPeer.on('data', (data) => {
-    try {
-      let msg;
-      if (typeof data === 'string') {
-        msg = data;
-      } else if (data instanceof ArrayBuffer) {
-        msg = new TextDecoder().decode(data);
-      } else if (data.data) {
-        // Handle ArrayBufferView
-        msg = new TextDecoder().decode(data.data || data);
-      } else {
-        msg = data.toString();
+  try {
+    currentPeer = new Peer({
+      initiator,
+      trickle: true,
+      reconnectTimer: 3000,
+      config: { 
+        iceServers: ICE_SERVERS,
+        iceTransportPolicy: 'all',
+        iceCandidatePoolSize: 10
+      },
+      objectMode: false,
+      channelConfig: {
+        ordered: true,
+        maxRetransmits: 10
+      },
+      sdpTransform: (sdp) => {
+        // Ensure proper codec priority
+        sdp = sdp.replace('useinbandfec=1', 'useinbandfec=1; stereo=1; maxaveragebitrate=510000');
+        console.log('[WebRTC] SDP:', sdp);
+        return sdp;
       }
-      console.log('[WebRTC] Received raw data:', data);
-      console.log('[WebRTC] Decoded message:', msg);
-      if (onData) onData(msg);
-    } catch (err) {
-      console.error('[WebRTC] Error processing message:', err);
-    }
-  });
-
-  currentPeer.on('error', (err) => {
-    console.error('[WebRTC] Error:', err);
-    console.error('Error details:', {
-      code: err.code,
-      errno: err.errno,
-      message: err.message,
-      type: err.type
     });
-    if (onError) onError(err);
-  });
 
-  currentPeer.on('close', () => {
-  console.log('[WebRTC] Connection closed');
-  if (currentPeer && currentPeer._pc) {
-    console.log('Connection state:', currentPeer._pc.connectionState);
-    console.log('ICE connection state:', currentPeer._pc.iceConnectionState);
-  }
-  cleanup();
-});
-
-  // 120s timeout (longer for bundle)
-  const timeoutId = setTimeout(() => {
-    if (currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState !== 'connected') {
-      console.log('[WebRTC] Connection timeout - destroying peer');
-      onError(new Error('Connection timeout'));
-      cleanup();
+    // Add ICE connection state change handler
+    if (currentPeer && currentPeer._pc) {
+      currentPeer._pc.addEventListener('iceconnectionstatechange', () => {
+        if (!currentPeer || !currentPeer._pc) return;
+        const state = currentPeer._pc.iceConnectionState;
+        console.log(`[WebRTC] ICE Connection State: ${state}`);
+        
+        if (state === 'failed') {
+          console.log('[WebRTC] ICE failed, attempting to restart...');
+          currentPeer.restartIce();
+          if (onError) onError(new Error('ICE connection failed'));
+        } else if (state === 'disconnected') {
+          console.log('[WebRTC] ICE disconnected, attempting to reconnect...');
+          currentPeer.restartIce();
+        } else if (state === 'connected') {
+          console.log('[WebRTC] ICE connected successfully');
+        }
+      });
     }
-  }, 120000);
 
-  // Store timeout ID for cleanup
-  currentPeer._timeoutId = timeoutId;
+    // Signal event handler
+    currentPeer.on('signal', (data) => {
+      console.log(`[WebRTC] Signal (${data.type || 'candidate'})`);
+      sendSignal(data, localAddr, remoteAddr);
+    });
 
-  return currentPeer;
+    // Connection established
+    currentPeer.on('connect', () => {
+      console.log('[WebRTC] ✅ Peer connection established!');
+      console.log('[WebRTC] Local Description:', currentPeer.localDescription);
+      console.log('[WebRTC] Remote Description:', currentPeer.remoteDescription);
+      if (onConnect) onConnect();
+    });
+
+    // ICE state changes
+    currentPeer.on('iceStateChange', (state) => {
+      console.log(`[WebRTC] ICE State Change: ${state}`);
+    });
+
+    // Signal state changes
+    currentPeer.on('signalStateChange', (state) => {
+      console.log(`[WebRTC] Signal State: ${state}`);
+      if (state === 'have-remote-offer') {
+        console.log('[WebRTC] Processing remote offer');
+      }
+    });
+
+    // Data channel message handler
+    currentPeer.on('data', (data) => {
+      console.log('[WebRTC] Received data, type:', typeof data);
+      
+      try {
+        let message;
+        if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+          const decoder = new TextDecoder();
+          message = decoder.decode(data);
+        } else if (typeof data === 'string') {
+          message = data;
+        } else if (data.data) {
+          message = new TextDecoder().decode(data.data);
+        } else {
+          message = String(data);
+        }
+        
+        console.log('[WebRTC] Decoded message:', message);
+        if (onData) onData(message);
+      } catch (err) {
+        console.error('[WebRTC] Error processing message:', err);
+        if (onError) onError(new Error(`Message processing failed: ${err.message}`));
+      }
+    });
+
+    // Error handling
+    currentPeer.on('error', (err) => {
+      console.error('[WebRTC] Peer error:', err);
+      if (onError) onError(err);
+      
+      // Attempt to recover from certain errors
+      if (err.message.includes('ICE failed') || 
+          err.message.includes('connection failed')) {
+        console.log('[WebRTC] Attempting to recover from connection error...');
+        setTimeout(() => {
+          if (currentPeer) {
+            currentPeer.destroy();
+            currentPeer = null;
+          }
+        }, 2000);
+      }
+    });
+
+    // Connection closed
+    currentPeer.on('close', () => {
+      console.log('[WebRTC] Connection closed');
+      if (currentPeer && currentPeer._pc) {
+        console.log('[WebRTC] Final connection state:', currentPeer._pc.connectionState);
+        console.log('[WebRTC] Final ICE state:', currentPeer._pc.iceConnectionState);
+      }
+      cleanup();
+    });
+
+    // Connection timeout
+    const timeoutId = setTimeout(() => {
+      if (currentPeer && currentPeer._pc && 
+          currentPeer._pc.iceConnectionState !== 'connected' &&
+          currentPeer._pc.iceConnectionState !== 'completed') {
+        console.log('[WebRTC] Connection timeout - destroying peer');
+        onError(new Error('Connection timeout'));
+        cleanup();
+      }
+    }, 120000);
+
+    // Store timeout ID for cleanup
+    currentPeer._timeoutId = timeoutId;
+
+    return currentPeer;
+  } catch (err) {
+    console.error('[WebRTC] Error creating peer:', err);
+    if (onError) onError(err);
+    throw err;
+  }
 };
 
 const sendSignal = async (data, from, to) => {
