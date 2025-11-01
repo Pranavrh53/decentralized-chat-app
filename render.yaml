@@ -11,7 +11,7 @@ services:
         value: 10000
     plan: free
 
-  - type: web
+  - type: static_site
     name: decentralized-chat-frontend
     env: node
     buildCommand: cd frontend && npm install && npm run build
