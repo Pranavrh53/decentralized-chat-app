@@ -11,12 +11,14 @@ services:
         value: 10000
     plan: free
 
-  - type: static_site
+  - type: web
     name: decentralized-chat-frontend
     env: node
     buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: "./frontend/build"
+    startCommand: serve -s frontend/build
     envVars:
       - key: REACT_APP_API_URL
         value: https://decentralized-chat-backend.onrender.com
+      - key: NODE_VERSION
+        value: 16.17.0
     plan: free
