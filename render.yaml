@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: decentralized-chat-backend
+    env: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn backend.app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: PORT
+        value: 10000
+    plan: free
+
+  - type: web
+    name: decentralized-chat-frontend
+    env: node
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: "./frontend/build"
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://decentralized-chat-backend.onrender.com
+    plan: free
