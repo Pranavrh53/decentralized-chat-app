@@ -14,11 +14,17 @@ services:
   - type: web
     name: decentralized-chat-frontend
     env: node
-    buildCommand: cd frontend && npm install && npm run build
-    startCommand: serve -s frontend/build
+    buildCommand: |
+      cd frontend
+      npm install
+      npm run build
+    startCommand: npx serve -s build
+    workingDirectory: frontend
     envVars:
       - key: REACT_APP_API_URL
         value: https://decentralized-chat-backend.onrender.com
       - key: NODE_VERSION
         value: 16.17.0
+      - key: PORT
+        value: 3000
     plan: free
