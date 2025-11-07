@@ -275,6 +275,7 @@ The project demonstrates real-world use of smart contracts, Web3 identity, and s
 👨‍💻 Author
 
 Pranav R H
-B.Tech in Artificial Intelligence & Machine Learning
+B.E in information science and engineering
 📧 [pranavrh260@gmail.com]
+
 🌐 GitHub Profile[https://github.com/Pranavrh53]
