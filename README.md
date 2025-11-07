@@ -78,7 +78,7 @@ A **Python web framework** used for the backend signaling process — exchanging
 ---
 
 ## 🧩 Project Architecture
-``
+
 decentralized-chat-app/
 │
 ├── backend/
@@ -99,7 +99,7 @@ decentralized-chat-app/
 │ └── package.json
 │
 └── README.md
-``
+
 
 ---
 
@@ -110,7 +110,7 @@ decentralized-chat-app/
 ```bash
 git clone https://github.com/your-username/decentralized-chat-app.git
 cd decentralized-chat-app
-
+```
 2️⃣ Start Ganache (Local Blockchain)
 
 Open Ganache GUI
