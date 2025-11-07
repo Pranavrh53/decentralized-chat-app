@@ -112,29 +112,32 @@ git clone https://github.com/your-username/decentralized-chat-app.git
 cd decentralized-chat-app
 ```
 2️⃣ Start Ganache (Local Blockchain)
-
+```
 Open Ganache GUI
 
 Create a new workspace
 
 Copy the RPC URL (e.g. http://127.0.0.1:7545)
-
+```
 3️⃣ Deploy Smart Contract
+```
 cd backend
 truffle migrate --reset
 After deployment, copy the generated contract address and update it in:
 
 frontend/src/utils/blockchain.js
-
+```
 4️⃣ Start Backend
+```
 cd backend
 uvicorn app:app --host 0.0.0.0 --port 8000
-
+```
 5️⃣ Start Frontend
+```
 cd frontend
 npm install
 npm start
-
+```
 
 Now open http://localhost:3000
  and connect your MetaMask wallet.
