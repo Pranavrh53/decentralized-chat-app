@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Login from "./components/Login";
 import Home from "./pages/Home";
 import Chat from "./pages/Chat";
+import AllUsers from "./pages/AllUsers";
 import { initWeb3 } from "./utils/blockchain";
 
 function App() {
@@ -57,6 +58,8 @@ function App() {
 
   const handleLogout = () => {
     setWalletAddress("");
+    localStorage.removeItem("walletAddress");
+    localStorage.removeItem("username");
   };
 
   return (
@@ -66,9 +69,19 @@ function App() {
           path="/"
           element={
             walletAddress ? (
-              <Navigate to="/home" />
+              <Navigate to="/all-users" />
             ) : (
               <Login setWalletAddress={setWalletAddress} />
+            )
+          }
+        />
+        <Route
+          path="/all-users"
+          element={
+            walletAddress ? (
+              <AllUsers walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
             )
           }
         />
@@ -91,6 +104,22 @@ function App() {
               <Navigate to="/" />
             )
           }
+        />
+        <Route
+          path="/contact"
+          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/settings"
+          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/faqs"
+          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/terms"
+          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
         />
       </Routes>
     </Router>

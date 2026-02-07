@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useParams } from "react-router-dom";
+import { createTheme, ThemeProvider } from '@mui/material/styles';
 
 import { 
   initWeb3,
@@ -26,7 +28,84 @@ import { Send as SendIcon, AccountCircle, Refresh as RefreshIcon } from "@mui/ic
 import { formatDistanceToNow } from 'date-fns';
 import { createPeer, setupSignaling, cleanup, setGlobalCallbacks } from "../utils/webrtc";
 
+// Create dark theme
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: {
+      main: '#8a66ff',
+      light: '#9d7aff',
+      dark: '#6644cc',
+    },
+    secondary: {
+      main: '#ff6b9d',
+    },
+    background: {
+      default: '#0a0e27',
+      paper: '#1a1f3a',
+    },
+    text: {
+      primary: '#ffffff',
+      secondary: '#b8b8d1',
+    },
+    error: {
+      main: '#ef4444',
+    },
+    success: {
+      main: '#4ade80',
+    },
+  },
+  typography: {
+    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
+          border: '1px solid rgba(138, 102, 255, 0.2)',
+        },
+      },
+    },
+    MuiTextField: {
+      styleOverrides: {
+        root: {
+          '& .MuiOutlinedInput-root': {
+            '& fieldset': {
+              borderColor: 'rgba(138, 102, 255, 0.3)',
+            },
+            '&:hover fieldset': {
+              borderColor: 'rgba(138, 102, 255, 0.5)',
+            },
+            '&.Mui-focused fieldset': {
+              borderColor: '#8a66ff',
+            },
+          },
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none',
+          borderRadius: '10px',
+          fontWeight: 600,
+        },
+        contained: {
+          background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+          boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #9d7aff 0%, #7755dd 100%)',
+            boxShadow: '0 6px 20px rgba(138, 102, 255, 0.6)',
+          },
+        },
+      },
+    },
+  },
+});
+
 function Chat({ walletAddress }) {
+  const { friendAddress } = useParams();
   const [messages, setMessages] = useState([]);
   
   // Helper function to safely create date from message time
@@ -38,7 +117,7 @@ function Chat({ walletAddress }) {
   };
   
   const [receiver, setReceiver] = useState(
-    localStorage.getItem('lastChatPartner') || ''
+    friendAddress || localStorage.getItem('lastChatPartner') || ''
   );
   const [message, setMessage] = useState("");
   const [account, setAccount] = useState(walletAddress);
@@ -48,6 +127,14 @@ function Chat({ walletAddress }) {
   const [isInitiator, setIsInitiator] = useState(false);
   const peerRef = useRef(null);
   const handleIncomingMessageRef = useRef(null);
+
+  // Update receiver when friendAddress from URL changes
+  useEffect(() => {
+    if (friendAddress && friendAddress !== receiver) {
+      setReceiver(friendAddress);
+      localStorage.setItem('lastChatPartner', friendAddress);
+    }
+  }, [friendAddress, receiver]);
 
   // Load messages from blockchain
   const loadMessages = useCallback(async () => {
@@ -102,14 +189,30 @@ function Chat({ walletAddress }) {
     
     const setup = async () => {
       try {
-        const { account: acc } = await initWeb3();
-        if (!mounted) return;
-        
-        setAccount(acc);
-        await loadMessages();
+        // If MetaMask is available, try to initialize
+        if (window.ethereum) {
+          const { account: acc } = await initWeb3();
+          if (!mounted) return;
+          
+          setAccount(acc);
+          await loadMessages();
+        } else {
+          // No MetaMask, use the wallet address from props (manual entry)
+          console.log('⚠️ MetaMask not available, using manual address');
+          if (!mounted) return;
+          setAccount(walletAddress);
+          // Skip loading messages from blockchain
+          setLoading(false);
+        }
       } catch (err) {
         console.error("❌ Initialization failed:", err);
-        setError(`Failed to initialize: ${err.message}`);
+        // If initialization fails, still try to use the walletAddress
+        if (mounted && walletAddress) {
+          console.log('⚠️ Using manual address due to initialization failure');
+          setAccount(walletAddress);
+        }
+        setError(`Note: Blockchain features unavailable. P2P chat still works.`);
+        setLoading(false);
       } finally {
         if (mounted) {
           setLoading(false);
@@ -122,7 +225,7 @@ function Chat({ walletAddress }) {
     return () => { 
       mounted = false; 
     };
-  }, [loadMessages]);
+  }, [loadMessages, walletAddress]);
 
   // Handle incoming WebRTC messages
   const handleIncomingMessage = useCallback(async (data) => {
@@ -545,16 +648,24 @@ function Chat({ walletAddress }) {
     );
   }
 
+  // Get username from localStorage
+  const username = localStorage.getItem("username") || "Anonymous";
+
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', p: 3 }}>
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           💬 Decentralized Chat
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
           <AccountCircle color="primary" sx={{ mr: 1 }} />
           <Typography variant="subtitle1">
-            Connected as: <code>{account}</code>
+            <strong>{username}</strong>
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, ml: 4 }}>
+          <Typography variant="caption" color="text.secondary">
+            <code>{account}</code>
           </Typography>
         </Box>
 
