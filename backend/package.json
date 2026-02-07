@@ -1,5 +1,9 @@
 {
   "devDependencies": {
+    "dotenv": "^17.2.3",
     "solc": "^0.8.19"
+  },
+  "dependencies": {
+    "@truffle/hdwallet-provider": "^2.1.15"
   }
 }
