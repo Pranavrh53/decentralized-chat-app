@@ -4,8 +4,7 @@ import Peer from 'simple-peer';
 let currentPeer = null;
 let ws = null;
 let pollInterval = null;
-let signalQueue = [];  // Dedupe signals
-let lastSignalHash = '';  // Simple dedupe
+let lastSignalHash = '';
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -24,173 +23,136 @@ const ICE_SERVERS = [
 export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, onError) => {
   console.log(`[WebRTC] Creating ${initiator ? 'initiator' : 'responder'} peer: ${localAddr} ↔ ${remoteAddr}`);
 
-  if (currentPeer) currentPeer.destroy();
+  // Destroy old only if not connected
+  if (currentPeer && currentPeer._pc.iceConnectionState !== 'connected') {
+    console.log('[WebRTC] Destroying old inactive peer');
+    currentPeer.destroy();
+  }
 
   currentPeer = new Peer({
     initiator,
-    trickle: true,  // Enable trickle ICE for faster connection
-    reconnectTimer: 3000,  // Try to reconnect after 3 seconds if disconnected
-    config: { 
-      iceServers: ICE_SERVERS,
-      iceTransportPolicy: 'all',  // Try both relay and direct connections
-      iceCandidatePoolSize: 10
-    },
-    objectMode: false,  // Changed to false to handle binary data properly
-    channelConfig: {
-      ordered: true,
-      maxRetransmits: 10
-    },
-    sdpTransform: (sdp) => {
-      // Ensure proper codec priority
-      sdp = sdp.replace('useinbandfec=1', 'useinbandfec=1; stereo=1; maxaveragebitrate=510000');
-      console.log('[WebRTC] SDP:', sdp);
-      return sdp;
-    }
+    trickle: true,
+    config: { iceServers: ICE_SERVERS }
   });
 
-  if (currentPeer && currentPeer._pc) {
-    currentPeer._pc.addEventListener('iceconnectionstatechange', () => {
-      if (!currentPeer || !currentPeer._pc) return;
-      const state = currentPeer._pc.iceConnectionState;
-      console.log(`[WebRTC] ICE State: ${state}`);
-      if (state === 'failed') onError(new Error('ICE failed'));
-    });
-  }
+  currentPeer._pc.addEventListener('iceconnectionstatechange', () => {
+    const state = currentPeer._pc.iceConnectionState;
+    console.log(`[WebRTC] ICE State: ${state}`);
+    if (state === 'connected') {
+      console.log('[WebRTC] ✅ WebRTC peer connection established!');
+    }
+    if (state === 'failed') onError(new Error('ICE failed'));
+  });
 
   currentPeer.on('signal', (data) => {
-    console.log(`[WebRTC] Signal: ${data.type || 'candidate'}`, data);
+    if (currentPeer.destroyed) return;  // Guard
+    console.log(`[WebRTC] Signal generated: ${data.type || 'candidate'}`);
+    console.log('[WebRTC] Signal data:', data);
     sendSignal(data, localAddr, remoteAddr);
   });
 
   currentPeer.on('connect', () => {
-    console.log('[WebRTC] ✅ Peer connection established!');
-    console.log('[WebRTC] Connection details:', {
-      localDescription: currentPeer.localDescription,
-      remoteDescription: currentPeer.remoteDescription
-    });
+    console.log('[WebRTC] Channel connected!');
     if (onConnect) onConnect();
   });
 
-  currentPeer.on('iceStateChange', (state) => {
-    console.log(`[WebRTC] ICE Connection State: ${state}`);
-  });
-
-  currentPeer.on('signalStateChange', (state) => {
-    console.log(`[WebRTC] Signal State: ${state}`);
-  });
-
   currentPeer.on('data', (data) => {
-    try {
-      let msg;
-      if (typeof data === 'string') {
-        msg = data;
-      } else if (data instanceof ArrayBuffer) {
-        msg = new TextDecoder().decode(data);
-      } else if (data.data) {
-        // Handle ArrayBufferView
-        msg = new TextDecoder().decode(data.data || data);
-      } else {
-        msg = data.toString();
-      }
-      console.log('[WebRTC] Received raw data:', data);
-      console.log('[WebRTC] Decoded message:', msg);
-      if (onData) onData(msg);
-    } catch (err) {
-      console.error('[WebRTC] Error processing message:', err);
-    }
+    console.log('[WebRTC] Data received:', data);
+    if (onData) onData(data.toString());
   });
 
   currentPeer.on('error', (err) => {
     console.error('[WebRTC] Error:', err);
-    console.error('Error details:', {
-      code: err.code,
-      errno: err.errno,
-      message: err.message,
-      type: err.type
-    });
     if (onError) onError(err);
   });
 
   currentPeer.on('close', () => {
-  console.log('[WebRTC] Connection closed');
-  if (currentPeer && currentPeer._pc) {
-    console.log('Connection state:', currentPeer._pc.connectionState);
-    console.log('ICE connection state:', currentPeer._pc.iceConnectionState);
-  }
-  cleanup();
-});
+    console.log('[WebRTC] Close');
+  });
 
-  // 120s timeout (longer for bundle)
-  const timeoutId = setTimeout(() => {
-    if (currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState !== 'connected') {
-      console.log('[WebRTC] Connection timeout - destroying peer');
-      onError(new Error('Connection timeout'));
-      cleanup();
+  // Timeout
+  setTimeout(() => {
+    if (currentPeer && currentPeer._pc.iceConnectionState !== 'connected') {
+      onError(new Error('Timeout'));
+      currentPeer.destroy();
     }
-  }, 120000);
-
-  // Store timeout ID for cleanup
-  currentPeer._timeoutId = timeoutId;
+  }, 90000);
 
   return currentPeer;
 };
 
+const SIGNALING_SERVER = process.env.REACT_APP_SIGNALING_SERVER || 'http://localhost:8000';
+const WS_SERVER = process.env.REACT_APP_WS_SERVER || 'ws://localhost:8000';
+
 const sendSignal = async (data, from, to) => {
   try {
     const endpoint = data.type === 'offer' ? '/offer' : data.type === 'answer' ? '/answer' : '/ice-candidate';
-    const body = data.type === 'candidate' 
-      ? { from_peer: from, to_peer: to, candidate: data }
-      : { from_peer: from, to_peer: to, signal: data };
+    const body = data.type === 'candidate' ? { from_peer: from, to_peer: to, candidate: data } : { from_peer: from, to_peer: to, signal: data };
 
-    const res = await fetch(`http://localhost:8000${endpoint}`, {
+    console.log(`[WebRTC] Sending ${data.type || 'candidate'} to ${to} via ${SIGNALING_SERVER}${endpoint}`);
+    console.log('[WebRTC] Request body:', JSON.stringify(body, null, 2));
+    
+    const res = await fetch(`${SIGNALING_SERVER}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
-    if (!res.ok) throw new Error('Signal send failed');
-    console.log(`[WebRTC] Signal sent: ${data.type}`);
+    if (!res.ok) {
+      const error = await res.text();
+      console.error(`[WebRTC] Send failed with status ${res.status}:`, error);
+      throw new Error(`Send failed: ${error}`);
+    }
+    
+    const responseData = await res.json();
+    console.log(`[WebRTC] ✅ Signal sent successfully: ${data.type || 'candidate'}`, responseData);
   } catch (err) {
     console.error('[WebRTC] Send error:', err);
+    // You might want to add retry logic here
   }
 };
 
 export const setupSignaling = (localAddr, onSignal, remoteAddr) => {
-  // Cleanup first
-  cleanup();
+  console.log('[WebRTC] ===== SETUP SIGNALING =====');
+  console.log('[WebRTC] Local address:', localAddr);
+  console.log('[WebRTC] Remote address:', remoteAddr);
+  
+  cleanup(false);  // Non-force
 
-  const wsUrl = `ws://localhost:8000/ws/${localAddr}`;
-  console.log(`[WebRTC] Connecting WS: ${wsUrl}`);
+  const wsUrl = `${WS_SERVER}/ws/${localAddr}`;
+  console.log(`[WebRTC] Connecting WebSocket: ${wsUrl}`);
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log('[WebRTC] WS open—polling for signals');
+    console.log('[WebRTC] ✅ WebSocket connected successfully');
     pollInterval = setInterval(async () => {
       try {
         const res = await fetch(`http://localhost:8000/check/${localAddr}`);
         const data = await res.json();
-        if (data.type === 'check' && (data.offer || data.answer || data.has_candidates)) {
-          const hash = JSON.stringify(data);  // Dedupe
-          if (hash === lastSignalHash) return;  // Skip duplicates
+        if (data.offer || data.answer || data.candidates?.length > 0) {
+          const hash = JSON.stringify(data);
+          if (hash === lastSignalHash) return;
           lastSignalHash = hash;
-          console.log('[WebRTC] Polled signal:', data);
+          console.log('[WebRTC] Polled:', data);
 
-          if (data.offer && !currentPeer) {
-            // Auto-create responder on offer
-            console.log('[WebRTC] Auto-creating responder for offer');
-            currentPeer = createPeer(false, localAddr, remoteAddr, onDataFromGlobal, onConnectFromGlobal, onErrorFromGlobal);
-            onSignal(data.offer);  // Set offer
-          } else if (data.answer) {
+          // Always signal up to the Chat layer - let it handle peer creation
+          if (data.offer) {
+            console.log('[WebRTC] Passing offer signal up');
+            onSignal(data.offer);
+          }
+          if (data.answer) {
+            console.log('[WebRTC] Passing answer signal up');
             onSignal(data.answer);
           }
           if (data.candidates && data.candidates.length > 0) {
+            console.log('[WebRTC] Passing', data.candidates.length, 'candidates up');
             data.candidates.forEach(cand => onSignal(cand));
           }
         }
       } catch (err) {
         console.warn('[WebRTC] Poll error:', err);
       }
-    }, 1500);  // Slower poll to reduce races
+    }, 1000);
   };
 
   ws.onmessage = (event) => {
@@ -198,71 +160,41 @@ export const setupSignaling = (localAddr, onSignal, remoteAddr) => {
       const signal = JSON.parse(event.data);
       if (signal.type && signal.signal) {
         console.log('[WebRTC] WS signal:', signal.type);
-        onSignal(signal.signal);
+        if (currentPeer && !currentPeer.destroyed && currentPeer._pc.signalingState !== 'stable') {
+          currentPeer.signal(signal.signal);
+        }
       }
     } catch (err) {
-      console.error('[WebRTC] WS parse error:', err);
+      console.error('[WebRTC] WS parse:', err);
     }
   };
 
   ws.onclose = () => {
-    console.log('[WebRTC] WS closed');
+    console.warn('[WebRTC] ⚠️ WebSocket closed');
     if (pollInterval) clearInterval(pollInterval);
+  };
+
+  ws.onerror = (error) => {
+    console.error('[WebRTC] ❌ WebSocket error:', error);
   };
 };
 
-// Global callbacks (for auto-responder)
-let globalOnData, globalOnConnect, globalOnError;
-const onDataFromGlobal = (data) => globalOnData && globalOnData(data);
-const onConnectFromGlobal = () => globalOnConnect && globalOnConnect();
-const onErrorFromGlobal = (err) => globalOnError && globalOnError(err);
-
 export const setGlobalCallbacks = (onData, onConnect, onError) => {
-  globalOnData = onData;
-  globalOnConnect = onConnect;
-  globalOnError = onError;
+  // Legacy function - callbacks are now passed directly to createPeer
+  // Kept for compatibility
 };
 
-export const cleanup = () => {
-  console.log('[WebRTC] Cleaning up...');
-  
-  // Clear any pending timeouts
-  if (currentPeer && currentPeer._timeoutId) {
-    clearTimeout(currentPeer._timeoutId);
+export const cleanup = (force = false) => {
+  if (!force && currentPeer && currentPeer._pc.iceConnectionState === 'connected') {
+    console.log('[WebRTC] Skipping cleanup—connected');
+    return;
   }
-  
-  // Destroy peer if it exists
-  if (currentPeer) {
-    try {
-      currentPeer.destroy();
-    } catch (e) {
-      console.warn('[WebRTC] Error during peer cleanup:', e);
-    }
-  }
-  
-  // Close WebSocket if it exists
-  if (ws) {
-    try {
-      ws.close();
-    } catch (e) {
-      console.warn('[WebRTC] Error during WebSocket cleanup:', e);
-    }
-  }
-  
-  // Clear polling interval
-  if (pollInterval) {
-    clearInterval(pollInterval);
-  }
-  
-  // Reset state
-  signalQueue = [];
-  lastSignalHash = '';
+  console.log('[WebRTC] Cleanup (force:', force, ')');
+  if (currentPeer) currentPeer.destroy();
+  if (ws) ws.close();
+  if (pollInterval) clearInterval(pollInterval);
   currentPeer = null;
   ws = null;
   pollInterval = null;
-  globalOnData = null;
-  globalOnConnect = null;
-  globalOnError = null;
-  
-  console.log('[WebRTC] Cleanup complete');
+  lastSignalHash = '';
 };

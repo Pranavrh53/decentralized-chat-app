@@ -202,8 +202,10 @@ async def check_signals(peer_id: str):
         "timestamp": datetime.utcnow().isoformat()
     }
     
-    # Clear the data after sending (except for the offer)
-    peer_data.answer = None
+    # Clear the data after sending to avoid reprocessing
+    # Keep offer for initial connection, but clear answer and candidates
+    if peer_data.answer:
+        peer_data.answer = None
     peer_data.candidates.clear()
     
     return response

@@ -5,8 +5,8 @@ import ChatMetadataABI from "../abis/ChatMetadata.json";
 
 // Environment variables
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
-const NETWORK_ID = parseInt(process.env.REACT_APP_NETWORK_ID || '1337', 10);
-const RPC_URL = process.env.REACT_APP_RPC_URL || 'http://127.0.0.1:8545';
+const NETWORK_ID = parseInt(process.env.REACT_APP_NETWORK_ID || '11155111', 10);  // Sepolia ID
+const RPC_URL = process.env.REACT_APP_RPC_URL || 'https://eth-sepolia.g.alchemy.com/v2/YOUR_ALCHEMY_KEY';  // Replace with your Alchemy key
 
 if (!CONTRACT_ADDRESS) {
   console.warn('REACT_APP_CONTRACT_ADDRESS is not set in .env');
@@ -50,7 +50,7 @@ export const initWeb3 = async () => {
         try {
           await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${NETWORK_ID.toString(16)}` }],
+            params: [{ chainId: '0xaa36a7' }],
           });
         } catch (switchError) {
           // This error code indicates that the chain has not been added to MetaMask
@@ -59,23 +59,24 @@ export const initWeb3 = async () => {
               await window.ethereum.request({
                 method: 'wallet_addEthereumChain',
                 params: [{
-                  chainId: `0x${NETWORK_ID.toString(16)}`,
-                  chainName: 'Ganache Local',
+                  chainId: '0xaa36a7',
+                  chainName: 'Sepolia Testnet',
                   nativeCurrency: {
-                    name: 'Ethereum',
+                    name: 'ETH',
                     symbol: 'ETH',
                     decimals: 18
                   },
-                  rpcUrls: [RPC_URL]
+                  rpcUrls: [RPC_URL],
+                  blockExplorerUrls: ['https://sepolia.etherscan.io']
                 }],
               });
             } catch (addError) {
-              console.error('Error adding Ganache network:', addError);
-              throw new Error('Failed to add Ganache network to MetaMask');
+              console.error('Error adding Sepolia network:', addError);
+              throw new Error('Failed to add Sepolia network to MetaMask');
             }
           } else {
-            console.error('Error switching to Ganache network:', switchError);
-            throw new Error('Failed to switch to Ganache network');
+            console.error('Error switching to Sepolia network:', switchError);
+            throw new Error('Failed to switch to Sepolia network');
           }
         }
       }
@@ -86,7 +87,7 @@ export const initWeb3 = async () => {
         try {
           await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${NETWORK_ID.toString(16)}` }],
+            params: [{ chainId: '0xaa36a7' }],
           });
         } catch (switchError) {
           // This error code indicates that the chain has not been added to MetaMask
@@ -95,21 +96,24 @@ export const initWeb3 = async () => {
               await window.ethereum.request({
                 method: 'wallet_addEthereumChain',
                 params: [{
-                  chainId: `0x${NETWORK_ID.toString(16)}`,
-                  chainName: 'Ganache Local',
+                  chainId: '0xaa36a7',
+                  chainName: 'Sepolia Testnet',
                   nativeCurrency: {
-                    name: 'Ethereum',
+                    name: 'ETH',
                     symbol: 'ETH',
                     decimals: 18
                   },
-                  rpcUrls: [RPC_URL]
+                  rpcUrls: [RPC_URL],
+                  blockExplorerUrls: ['https://sepolia.etherscan.io']
                 }],
               });
             } catch (addError) {
-              console.error('Error adding Ganache network:', addError);
-              throw new Error('Failed to add Ganache network to MetaMask');
+              console.error('Error adding Sepolia network:', addError);
+              throw new Error('Failed to add Sepolia network to MetaMask');
             }
           } else {
+            console.error('Error switching to Sepolia network:', switchError);
+            throw new Error('Failed to switch to Sepolia network');
             console.error('Error switching to Ganache network:', switchError);
             throw new Error('Failed to switch to Ganache network');
           }

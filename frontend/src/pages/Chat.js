@@ -4,7 +4,6 @@ import {
   initWeb3,
   storeMessageMetadata,
   getMessageMetadata,
-  getWeb3,
   hashMessage 
 } from "../utils/blockchain";
 import { 
@@ -48,6 +47,7 @@ function Chat({ walletAddress }) {
   const [connected, setConnected] = useState(false);
   const [isInitiator, setIsInitiator] = useState(false);
   const peerRef = useRef(null);
+  const handleIncomingMessageRef = useRef(null);
 
   // Load messages from blockchain
   const loadMessages = useCallback(async () => {
@@ -56,7 +56,6 @@ function Chat({ walletAddress }) {
       setError(null);
       
       // Try to load the last 10 messages
-      const results = [];
       const messagePromises = [];
       
       for (let i = 0; i < 10; i++) {
@@ -127,49 +126,60 @@ function Chat({ walletAddress }) {
 
   // Handle incoming WebRTC messages
   const handleIncomingMessage = useCallback(async (data) => {
-    console.log('[Chat] handleIncomingMessage called with:', data);
+    console.log('[Chat] Raw incoming data:', data);
     
     try {
-      let finalText = data;
+      let messageText;
       
-      // If JSON string, extract text
+      // Handle different data types
       if (typeof data === 'string') {
         try {
+          // Try to parse as JSON
           const parsed = JSON.parse(data);
-          finalText = parsed.text || parsed.content || data;
-          console.log('[Chat] Extracted text from JSON:', finalText);
+          messageText = parsed.text || parsed.content || data;
+          console.log('[Chat] Parsed message text:', messageText);
         } catch (e) {
-          console.log('[Chat] Plain string:', data);
+          // If not JSON, use as-is
+          messageText = data;
+          console.log('[Chat] Plain text message:', messageText);
         }
-      } else if (data && typeof data === 'object') {
-        finalText = data.text || data.content || JSON.stringify(data);
+      } else if (data instanceof ArrayBuffer || data instanceof Blob) {
+        // Handle binary data
+        messageText = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = (e) => {
+            console.error('[Chat] Error reading blob data:', e);
+            resolve('(Binary data)');
+          };
+          reader.readAsText(new Blob([data]));
+        });
+      } else if (typeof data === 'object' && data !== null) {
+        messageText = data.text || data.content || JSON.stringify(data);
+      } else {
+        messageText = String(data);
       }
 
-      // Placeholder decrypt (skip for now)
-      // finalText = await decryptMessage(finalText);
-
-      // Hash & store on chain
-      const hash = await hashMessage(finalText);
-      await storeMessageMetadata(receiver, account, hash);  // Incoming: receiver as sender
-
-      // Create new message object
+      console.log('[Chat] Processed message text:', messageText);
+      
+      // Create new message object FIRST (before blockchain transaction)
       const newMsg = {
         id: Date.now(),
-        content: finalText,  // Key: Set actual text here
-        text: finalText,     // For backward compatibility
-        sender: receiver,    // The other peer is the sender
+        content: messageText,
+        text: messageText,
+        sender: receiver,
         time: new Date(),
         timestamp: new Date().toISOString(),
-        incoming: true,      // Always true for incoming messages
-        messageHash: hash,   // Store the hash for reference
-        from: receiver,      // For consistency
+        incoming: true,
+        messageHash: null,
+        from: receiver,
         status: 'received',
         type: 'text'
       };
 
       console.log('[Chat] Adding message to UI:', newMsg);
       
-      // Update state
+      // Update state IMMEDIATELY
       setMessages(prev => [...prev, newMsg]);
       
       // Save to local storage
@@ -177,6 +187,25 @@ function Chat({ walletAddress }) {
       const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
       chatHistory.push(newMsg);
       localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+      console.log('[Chat] Message saved to local storage');
+      
+      // Hash & store on chain in the background (don't wait for it)
+      try {
+        console.log('[Chat] Storing message metadata on chain...');
+        const hash = await hashMessage(messageText);
+        await storeMessageMetadata(receiver, account, hash);
+        console.log('[Chat] Message metadata stored on blockchain');
+        
+        // Update message with hash
+        setMessages(prev => prev.map(msg => 
+          msg.id === newMsg.id 
+            ? { ...msg, messageHash: hash } 
+            : msg
+        ));
+      } catch (err) {
+        console.error('[Chat] Error storing message metadata on blockchain:', err);
+        // Message still shows in UI, just without blockchain confirmation
+      }
 
     } catch (err) {
       console.error('[Chat] Error processing incoming message:', err);
@@ -184,82 +213,126 @@ function Chat({ walletAddress }) {
     }
   }, [receiver, account]);
 
-  // Auto-start as responder if receiver set (e.g., from URL params)
+  // Store the latest handleIncomingMessage in ref
+  useEffect(() => {
+    handleIncomingMessageRef.current = handleIncomingMessage;
+  }, [handleIncomingMessage]);
+
+  // Auto-responder useEffect (only if not initiator)
   useEffect(() => {
     if (receiver && receiver !== account && !isInitiator) {
+      console.log('[Chat] ===== AUTO-RESPONDER SETUP =====');
+      console.log('[Chat] Receiver:', receiver);
+      console.log('[Chat] Account:', account);
+      console.log('[Chat] IsInitiator:', isInitiator);
       console.log('[Chat] Setting up auto-responder for', receiver);
       
-      const onConnectHandler = () => {
-        console.log('[Chat] ✅ WebRTC connection established!');
+      // Cleanup any stale peer before setting up responder
+      if (peerRef.current && !peerRef.current.destroyed) {
+        console.log('[Chat] Cleaning up stale responder peer');
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
+      
+      // Set global callbacks FIRST before setting up signaling
+      const onData = (data) => {
+        console.log('[Chat] ===== RESPONDER RECEIVED DATA =====');
+        console.log('[Chat] Responder received data:', data);
+        if (handleIncomingMessageRef.current) {
+          handleIncomingMessageRef.current(data);
+        }
+      };
+      
+      const onConnect = () => {
+        console.log('[Chat] ===== RESPONDER CONNECTED =====');
+        console.log('[Chat] Responder connected!');
         setConnected(true);
       };
       
-      const onErrorHandler = (err) => {
-        console.error('[Chat] WebRTC error:', err);
-        setError('Connection error: ' + (err.message || 'Unknown error'));
+      const onError = (err) => {
+        console.error('[Chat] ===== RESPONDER ERROR =====');
+        console.error('[Chat] Responder error:', err);
+        setError(err.message);
         setConnected(false);
       };
       
-      setGlobalCallbacks(
-        (data) => {
-          console.log('[Chat] Received data via global callback');
-          handleIncomingMessage(data);
-        },
-        onConnectHandler,
-        onErrorHandler
-      );
-      
-      // Setup signaling for auto-responder
+      setGlobalCallbacks(onData, onConnect, onError);
+
       const handleSignal = (signal) => {
-        console.log(`[Chat] Received signal of type: ${signal.type || 'candidate'}`);
+        console.log('[Chat] Responder signal received:', signal.type || 'candidate');
         
-        if (!peerRef.current) {
-          console.log('[Chat] Creating responder peer');
-          peerRef.current = createPeer(
-            false, // Not initiator
-            account,
-            receiver,
-            (data) => {
-              console.log('[Chat] Received data from peer');
-              handleIncomingMessage(data);
-            },
-            onConnectHandler,
-            onErrorHandler
-          );
+        // RESPONDER: Only process offers and candidates, NOT answers
+        if (signal.type === 'answer') {
+          console.log('[Chat] Responder ignoring answer signal (meant for initiator)');
+          return;
         }
         
-        if (peerRef.current) {
-          if (peerRef.current._pc && peerRef.current._pc.signalingState !== 'stable') {
-            console.log(`[Chat] Processing ${signal.type} signal in state:`, peerRef.current._pc.signalingState);
-            peerRef.current.signal(signal);
+        // Check if peer already exists
+        if (!peerRef.current) {
+          // Only create peer if we receive an offer
+          if (signal.type === 'offer') {
+            console.log('[Chat] Creating new responder peer from offer');
+            peerRef.current = createPeer(false, account, receiver, onData, onConnect, onError);
+            
+            // Signal the offer IMMEDIATELY after creating peer
+            try {
+              console.log('[Chat] Signaling offer to new responder peer');
+              peerRef.current.signal(signal);
+            } catch (err) {
+              console.error('[Chat] Error signaling offer to new peer:', err);
+            }
+            return; // Don't process further
           } else {
-            console.log(`[Chat] Queuing signal (${signal.type}) - connection not ready`);
-            // Queue the signal if peer isn't ready
-            setTimeout(() => peerRef.current?.signal(signal), 500);
+            console.log('[Chat] Waiting for offer before creating peer');
+            return;
+          }
+        }
+        
+        // Peer already exists, process additional signals
+        if (peerRef.current && !peerRef.current.destroyed) {
+          // Check connection state before processing offer again
+          const signalingState = peerRef.current._pc.signalingState;
+          const iceState = peerRef.current._pc.iceConnectionState;
+          
+          // Only ignore offer if truly connected and working
+          if (signal.type === 'offer' && iceState === 'connected') {
+            console.log('[Chat] Responder ignoring offer - already connected');
+            return;
+          }
+          
+          // If peer is failed/disconnected, destroy it and recreate
+          if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed') {
+            console.log('[Chat] Responder peer in bad state, recreating:', iceState);
+            peerRef.current.destroy();
+            peerRef.current = null;
+            
+            if (signal.type === 'offer') {
+              console.log('[Chat] Creating new responder peer from offer (after cleanup)');
+              peerRef.current = createPeer(false, account, receiver, onData, onConnect, onError);
+              try {
+                peerRef.current.signal(signal);
+              } catch (err) {
+                console.error('[Chat] Error signaling offer to new peer:', err);
+              }
+            }
+            return;
+          }
+          
+          try {
+            peerRef.current.signal(signal);
+          } catch (err) {
+            console.error('[Chat] Error signaling peer:', err);
           }
         }
       };
-      
+
       setupSignaling(account, handleSignal, receiver);
-      
-      // Cleanup
       return () => {
-        console.log('[Chat] Cleaning up auto-responder');
-        if (peerRef.current) {
-          peerRef.current.destroy();
-          peerRef.current = null;
-        }
+        console.log('[Chat] Auto-responder effect cleanup');
+        cleanup(false);
       };
     }
-  }, [receiver, account, isInitiator, handleIncomingMessage]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      localStorage.setItem('lastChatPartner', receiver);
-      cleanup();  // WebRTC cleanup
-    };
-  }, [receiver]);
+  }, [receiver, account]); // Don't include isInitiator - let startChat() handle cleanup
 
   // Start P2P chat as initiator
   const startChat = () => {
@@ -267,48 +340,88 @@ function Chat({ walletAddress }) {
       setError('Invalid receiver');
       return;
     }
-    
-    if (peerRef.current) {  // Already connected?
-      console.log('[Chat] Using existing peer connection');
-      setConnected(true);
-      return;
-    }
-    
-    console.log('[Chat] Starting new chat as initiator to', receiver);
+    if (connected) return;
+
+    console.log('[Chat] ===== INITIATOR SETUP =====');
+    console.log('[Chat] Starting as initiator');
+    console.log('[Chat] Receiver:', receiver);
+    console.log('[Chat] Account:', account);
+    setIsInitiator(true);
     setError(null);
     setConnected(false);
-    setIsInitiator(true);
-    setIsInitiator(true);  // Only initiator clicks this
-    setConnected(false);
+    cleanup(true);  // Force clean old
 
-    // Set globals for auto-responder fallback
-    setGlobalCallbacks(
-      (data) => handleIncomingMessage(data),
-      () => setConnected(true),
-      (err) => { setError(err.message); setConnected(false); }
-    );
+    // Define callbacks
+    const onData = (data) => {
+      console.log('[Chat] ===== INITIATOR RECEIVED DATA =====');
+      console.log('[Chat] Initiator received data:', data);
+      if (handleIncomingMessageRef.current) {
+        handleIncomingMessageRef.current(data);
+      }
+    };
+    
+    const onConnect = () => {
+      console.log('[Chat] ===== INITIATOR CONNECTED =====');
+      console.log('[Chat] Initiator connected!');
+      setConnected(true);
+    };
+    
+    const onError = (err) => {
+      console.error('[Chat] ===== INITIATOR ERROR =====');
+      console.error('[Chat] Initiator error:', err);
+      setError(err.message);
+      setConnected(false);
+    };
+    
+    setGlobalCallbacks(onData, onConnect, onError);
 
-    // Setup signaling (handles auto-responder if offer arrives first)
-    setupSignaling(account, (signal) => {
-      // State guard: Only signal if appropriate
-      if (!peerRef.current || peerRef.current._pc.signalingState === 'stable') {
-        console.log('[Chat] Skipping signal in stable state');
+    const handleSignal = (signal) => {
+      console.log('[Chat] Initiator signal received:', signal.type || 'candidate');
+      
+      // INITIATOR: Only process answers and candidates, NOT offers
+      if (signal.type === 'offer') {
+        console.log('[Chat] Initiator ignoring offer signal (meant for responder)');
         return;
       }
-      peerRef.current.signal(signal);
-    }, receiver);  // Pass remote for auto-create
+      
+      if (peerRef.current && !peerRef.current.destroyed) {
+        // Check connection state before processing answer
+        const signalingState = peerRef.current._pc.signalingState;
+        const iceState = peerRef.current._pc.iceConnectionState;
+        
+        // Don't process answer if already in stable state or connected
+        if (signal.type === 'answer' && (signalingState === 'stable' || iceState === 'connected')) {
+          console.log('[Chat] Initiator ignoring answer - already in stable/connected state');
+          return;
+        }
+        
+        try {
+          peerRef.current.signal(signal);
+        } catch (err) {
+          console.error('[Chat] Error signaling peer:', err);
+        }
+      }
+    };
 
-    // Manual create as initiator
+    setupSignaling(account, handleSignal, receiver);
+
     peerRef.current = createPeer(
       true,  // Initiator
       account,
       receiver,
-      (data) => handleIncomingMessage(data),
-      () => setConnected(true),
-      (err) => { setError(err.message); setConnected(false); }
+      onData,
+      onConnect,
+      onError
     );
   };
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      localStorage.setItem('lastChatPartner', receiver);
+      cleanup(false);  // Non-force cleanup
+    };
+  }, [receiver]);
 
   // Send message via P2P
   const handleSendMessage = async () => {
@@ -323,6 +436,13 @@ function Chat({ walletAddress }) {
     }
 
     try {
+      // Check data channel state
+      const dataChannel = peerRef.current._channel;
+      if (!dataChannel || dataChannel.readyState !== 'open') {
+        console.warn('[Chat] Data channel not ready, state:', dataChannel?.readyState);
+        throw new Error('Connection not ready. Please wait...');
+      }
+
       // Create a message object with metadata
       const messageObj = {
         text: message,
@@ -331,14 +451,20 @@ function Chat({ walletAddress }) {
         type: 'text'
       };
 
-      // Convert to JSON string and send
+      // Convert to JSON string
       const messageString = JSON.stringify(messageObj);
       console.log('[Chat] Sending message:', messageString);
       
-      // Send the message
-      peerRef.current.send(messageString);
+      // Send the message with error handling
+      try {
+        peerRef.current.send(messageString);
+        console.log('[Chat] Message sent successfully');
+      } catch (sendError) {
+        console.error('[Chat] Error sending message:', sendError);
+        throw new Error('Failed to send message: ' + sendError.message);
+      }
 
-      // Add to UI immediately (optimistic update)
+      // Create message object for UI (optimistic update)
       const newMessage = {
         id: Date.now(),
         content: message,
@@ -347,34 +473,38 @@ function Chat({ walletAddress }) {
         time: new Date(),
         timestamp: new Date().toISOString(),
         incoming: false,
-        status: 'sending'
+        status: 'sending',
+        messageHash: null
       };
 
+      console.log('[Chat] Adding message to UI:', newMessage);
       setMessages(prev => [...prev, newMessage]);
       setMessage(''); // Clear input
 
       // Store metadata in the background
       try {
+        console.log('[Chat] Storing message metadata on chain...');
         const hash = await hashMessage(message);
         await storeMessageMetadata(account, receiver, hash);
         
-        // Update message status
+        console.log('[Chat] Message metadata stored, updating UI');
+        // Update message status with the hash
         setMessages(prev => prev.map(msg => 
           msg.id === newMessage.id 
-            ? { ...msg, status: 'sent', hash } 
+            ? { ...msg, status: 'sent', messageHash: hash } 
             : msg
         ));
       } catch (err) {
-        console.error('Error storing message metadata:', err);
+        console.error('[Chat] Error storing message metadata:', err);
         // Update message status to show error
         setMessages(prev => prev.map(msg => 
           msg.id === newMessage.id 
-            ? { ...msg, status: 'error', error: 'Failed to store on blockchain' } 
+            ? { ...msg, status: 'error', error: 'Sent but failed to store on blockchain' } 
             : msg
         ));
       }
     } catch (err) {
-      console.error('Send error:', err);
+      console.error('[Chat] Send error:', err);
       setError('Failed to send message: ' + (err.message || 'Unknown error'));
       
       // Update the last message status if it failed to send
@@ -383,7 +513,12 @@ function Chat({ walletAddress }) {
         if (lastMsg && lastMsg.sender === account) {
           return [
             ...prev.slice(0, -1),
-            { ...lastMsg, status: 'error', error: 'Failed to send' }
+            { 
+              ...lastMsg, 
+              status: 'error', 
+              error: 'Failed to send',
+              timestamp: new Date().toISOString()
+            }
           ];
         }
         return prev;
@@ -451,20 +586,39 @@ function Chat({ walletAddress }) {
             />
           </Box>
 
-          {/* NEW: Start Chat Button */}
-          <Button
-            variant="outlined"
-            onClick={startChat}
-            disabled={!receiver.trim() || (connected && isInitiator) || (receiver === account)}
-            sx={{ mb: 2, minWidth: '200px' }}
-          >
-            {connected 
-              ? 'Connected' 
-              : isInitiator 
-                ? 'Start Chat (Initiator)' 
-                : 'Ready to Receive Connection'
-            }
-          </Button>
+          {/* Connection Status and Start Chat Button */}
+          {!connected ? (
+            <Button
+              variant="contained"
+              onClick={startChat}
+              disabled={!receiver.trim() || receiver === account || isInitiator}
+              sx={{ mb: 2, minWidth: '200px' }}
+              color="primary"
+            >
+              {isInitiator ? 'Connecting...' : 'Start Chat'}
+            </Button>
+          ) : (
+            <Paper 
+              sx={{ 
+                mb: 2, 
+                p: 1.5, 
+                backgroundColor: 'success.light',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <Typography variant="body1" color="success.dark" fontWeight="bold">
+                ✓ Connected - Ready to chat!
+              </Typography>
+            </Paper>
+          )}
+          
+          {!connected && !isInitiator && receiver.trim() && receiver !== account && (
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+              💡 Waiting to receive connection from this address, or click "Start Chat" to initiate
+            </Typography>
+          )}
 
           <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
             <TextField
