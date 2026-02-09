@@ -170,8 +170,9 @@ export const getContract = () => {
  * @param {string} sender - sender wallet address
  * @param {string} receiver - receiver wallet address
  * @param {string} messageHash - hash of the message
+ * @param {string} ipfsHash - IPFS hash (CID) where message content is stored
  */
-export const storeMessageMetadata = async (sender, receiver, messageHash) => {
+export const storeMessageMetadata = async (sender, receiver, messageHash, ipfsHash = '') => {
   try {
     const { web3, contract } = await initWeb3();
     const accounts = await web3.eth.getAccounts();
@@ -181,12 +182,13 @@ export const storeMessageMetadata = async (sender, receiver, messageHash) => {
       sender,
       receiver,
       messageHash,
+      ipfsHash,
       from
     });
 
-    // Store the message hash on the blockchain
+    // Store the message hash and IPFS hash on the blockchain
     const tx = await contract.methods
-      .storeMetadata(receiver, messageHash)
+      .storeMetadata(receiver, messageHash, ipfsHash)
       .send({ 
         from, 
         gas: 500000, // Increased gas limit
@@ -317,4 +319,63 @@ export const hashMessage = async (message) => {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = "0x" + hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
   return hashHex;
+};
+
+/**
+ * Get all message IDs between two users
+ * @param {string} user1 - first user address
+ * @param {string} user2 - second user address
+ * @returns {Promise<number[]>} Array of message IDs
+ */
+export const getMessagesBetweenUsers = async (user1, user2) => {
+  try {
+    const { contract } = await initWeb3();
+    const messageIds = await contract.methods
+      .getMessagesBetweenUsers(user1, user2)
+      .call();
+    
+    return messageIds.map(id => Number(id));
+  } catch (error) {
+    console.error('Error getting messages between users:', error);
+    return [];
+  }
+};
+
+/**
+ * Get all messages with full metadata between two users
+ * @param {string} user1 - first user address
+ * @param {string} user2 - second user address
+ * @returns {Promise<Array>} Array of message objects with metadata
+ */
+export const loadChatHistory = async (user1, user2) => {
+  try {
+    const messageIds = await getMessagesBetweenUsers(user1, user2);
+    console.log(`📜 Found ${messageIds.length} messages between users`);
+    
+    if (messageIds.length === 0) {
+      return [];
+    }
+    
+    const messages = await Promise.all(
+      messageIds.map(async (id) => {
+        try {
+          const metadata = await getMessageMetadata(id);
+          return {
+            id,
+            ...metadata,
+            time: new Date(metadata.timestamp * 1000),
+            incoming: metadata.sender.toLowerCase() === user2.toLowerCase()
+          };
+        } catch (error) {
+          console.warn(`Failed to load message ${id}:`, error);
+          return null;
+        }
+      })
+    );
+    
+    return messages.filter(msg => msg !== null);
+  } catch (error) {
+    console.error('Error loading chat history:', error);
+    return [];
+  }
 };

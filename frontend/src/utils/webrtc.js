@@ -24,7 +24,7 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   console.log(`[WebRTC] Creating ${initiator ? 'initiator' : 'responder'} peer: ${localAddr} ↔ ${remoteAddr}`);
 
   // Destroy old only if not connected
-  if (currentPeer && currentPeer._pc.iceConnectionState !== 'connected') {
+  if (currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState !== 'connected') {
     console.log('[WebRTC] Destroying old inactive peer');
     currentPeer.destroy();
   }
@@ -72,7 +72,7 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
 
   // Timeout
   setTimeout(() => {
-    if (currentPeer && currentPeer._pc.iceConnectionState !== 'connected') {
+    if (currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState !== 'connected') {
       onError(new Error('Timeout'));
       currentPeer.destroy();
     }
@@ -160,7 +160,7 @@ export const setupSignaling = (localAddr, onSignal, remoteAddr) => {
       const signal = JSON.parse(event.data);
       if (signal.type && signal.signal) {
         console.log('[WebRTC] WS signal:', signal.type);
-        if (currentPeer && !currentPeer.destroyed && currentPeer._pc.signalingState !== 'stable') {
+        if (currentPeer && !currentPeer.destroyed && currentPeer._pc && currentPeer._pc.signalingState !== 'stable') {
           currentPeer.signal(signal.signal);
         }
       }
@@ -185,7 +185,7 @@ export const setGlobalCallbacks = (onData, onConnect, onError) => {
 };
 
 export const cleanup = (force = false) => {
-  if (!force && currentPeer && currentPeer._pc.iceConnectionState === 'connected') {
+  if (!force && currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState === 'connected') {
     console.log('[WebRTC] Skipping cleanup—connected');
     return;
   }

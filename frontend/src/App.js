@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Login from "./components/Login";
 import Home from "./pages/Home";
 import Chat from "./pages/Chat";
-import AllUsers from "./pages/AllUsers";
+import Friends from "./pages/Friends";
 import { initWeb3 } from "./utils/blockchain";
 
 function App() {
@@ -69,21 +69,25 @@ function App() {
           path="/"
           element={
             walletAddress ? (
-              <Navigate to="/all-users" />
+              <Navigate to="/friends" />
             ) : (
               <Login setWalletAddress={setWalletAddress} />
             )
           }
         />
         <Route
-          path="/all-users"
+          path="/friends"
           element={
             walletAddress ? (
-              <AllUsers walletAddress={walletAddress} onLogout={handleLogout} />
+              <Friends walletAddress={walletAddress} onLogout={handleLogout} />
             ) : (
               <Navigate to="/" />
             )
           }
+        />
+        <Route
+          path="/all-users"
+          element={<Navigate to="/friends" />}
         />
         <Route
           path="/home"
@@ -107,19 +111,19 @@ function App() {
         />
         <Route
           path="/contact"
-          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
         />
         <Route
           path="/settings"
-          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
         />
         <Route
           path="/faqs"
-          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
         />
         <Route
           path="/terms"
-          element={walletAddress ? <Navigate to="/all-users" /> : <Navigate to="/" />}
+          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
         />
       </Routes>
     </Router>

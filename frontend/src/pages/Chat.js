@@ -1,13 +1,15 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 
 import { 
   initWeb3,
   storeMessageMetadata,
   getMessageMetadata,
-  hashMessage 
+  hashMessage,
+  loadChatHistory
 } from "../utils/blockchain";
+import { uploadToIPFS, retrieveFromIPFS } from "../utils/ipfs";
 import { 
   Box, 
   TextField, 
@@ -24,7 +26,7 @@ import {
   Tooltip,
   CircularProgress
 } from "@mui/material";
-import { Send as SendIcon, AccountCircle, Refresh as RefreshIcon } from "@mui/icons-material";
+import { Send as SendIcon, AccountCircle, Refresh as RefreshIcon, ArrowBack as ArrowBackIcon } from "@mui/icons-material";
 import { formatDistanceToNow } from 'date-fns';
 import { createPeer, setupSignaling, cleanup, setGlobalCallbacks } from "../utils/webrtc";
 
@@ -106,7 +108,9 @@ const darkTheme = createTheme({
 
 function Chat({ walletAddress }) {
   const { friendAddress } = useParams();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
+  const [friendName, setFriendName] = useState('');
   
   // Helper function to safely create date from message time
   const getMessageTime = (msg) => {
@@ -131,57 +135,140 @@ function Chat({ walletAddress }) {
   // Update receiver when friendAddress from URL changes
   useEffect(() => {
     if (friendAddress && friendAddress !== receiver) {
-      setReceiver(friendAddress);
-      localStorage.setItem('lastChatPartner', friendAddress);
+      // Ensure friendAddress is a string
+      const addressString = typeof friendAddress === 'string' ? friendAddress : friendAddress.address || friendAddress;
+      setReceiver(addressString);
+      localStorage.setItem('lastChatPartner', addressString);
+      
+      // Get friend's name from friends list
+      const friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      const friend = friendsList.find(f => f.address && f.address.toLowerCase() === addressString.toLowerCase());
+      if (friend) {
+        setFriendName(friend.name);
+      } else {
+        setFriendName('');
+      }
     }
-  }, [friendAddress, receiver]);
+  }, [friendAddress, receiver, walletAddress]);
 
-  // Load messages from blockchain
+  // Load messages from blockchain and IPFS
   const loadMessages = useCallback(async () => {
+    if (!account || !receiver) {
+      console.log('⚠️ Waiting for account and receiver...');
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
       
-      // Try to load the last 10 messages
-      const messagePromises = [];
+      // STEP 1: Load messages from localStorage first (imported or cached messages)
+      const chatKey = `chat_${account}_${receiver}`;
+      const localMessages = JSON.parse(localStorage.getItem(chatKey) || '[]');
       
-      for (let i = 0; i < 10; i++) {
-        messagePromises.push(
-          getMessageMetadata(i).then(metadata => {
-            if (metadata && metadata.messageHash) {
-              return {
-                ...metadata,
-                id: i,
-                time: new Date(),
-                content: '',  // Placeholder—real content from P2P
-                incoming: metadata.sender !== account,
-                from: metadata.sender
-              };
-            }
-            return null;
-          }).catch(e => {
-            // Skip non-critical errors
-            if (!e.message.includes('not found')) {
-              console.warn(`Error loading message ${i}:`, e);
-            }
-            return null;
-          })
-        );
+      if (localMessages.length > 0) {
+        console.log(`📦 Found ${localMessages.length} messages in localStorage`);
+        setMessages(localMessages);
       }
       
-      // Wait for all messages to load
-      const loadedMessages = await Promise.all(messagePromises);
-      const validMessages = loadedMessages.filter(msg => msg !== null);
+      // STEP 2: Load messages from blockchain + IPFS
+      console.log('📜 Loading chat history from blockchain...');
+      const chatHistory = await loadChatHistory(account, receiver);
       
-      setMessages(validMessages);
+      console.log(`✅ Found ${chatHistory.length} messages in blockchain`);
+      
+      if (chatHistory.length === 0) {
+        // Keep localStorage messages if blockchain is empty
+        if (localMessages.length === 0) {
+          setMessages([]);
+        }
+        return;
+      }
+      
+      // Load message content from IPFS
+      const messagesWithContent = await Promise.all(
+        chatHistory.map(async (msg) => {
+          try {
+            // If there's an IPFS hash, retrieve the content
+            if (msg.ipfsHash) {
+              console.log(`🔄 Fetching message ${msg.id} from IPFS:`, msg.ipfsHash);
+              const ipfsData = await retrieveFromIPFS(msg.ipfsHash);
+              
+              return {
+                ...msg,
+                content: ipfsData.content || '',
+                text: ipfsData.content || '',
+                time: new Date(msg.timestamp * 1000),
+                incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+                status: 'delivered'
+              };
+            } else {
+              // Old message without IPFS hash
+              return {
+                ...msg,
+                content: '(Message content not available)',
+                text: '(Message content not available)',
+                time: new Date(msg.timestamp * 1000),
+                incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+                status: 'delivered'
+              };
+            }
+          } catch (error) {
+            console.warn(`Failed to load content for message ${msg.id}:`, error);
+            return {
+              ...msg,
+              content: '(Failed to load from IPFS)',
+              text: '(Failed to load from IPFS)',
+              time: new Date(msg.timestamp * 1000),
+              incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+              status: 'error'
+            };
+          }
+        })
+      );
+      
+      // STEP 3: Merge localStorage and blockchain messages (deduplicate)
+      const mergedMessages = [...localMessages];
+      
+      messagesWithContent.forEach(blockchainMsg => {
+        const exists = mergedMessages.some(local => 
+          local.id === blockchainMsg.id || 
+          (local.text === blockchainMsg.content && 
+           Math.abs(new Date(local.time).getTime() - new Date(blockchainMsg.time).getTime()) < 5000)
+        );
+        
+        if (!exists) {
+          mergedMessages.push(blockchainMsg);
+        }
+      });
+      
+      // Sort by time
+      mergedMessages.sort((a, b) => {
+        const timeA = a.time instanceof Date ? a.time : new Date(a.time);
+        const timeB = b.time instanceof Date ? b.time : new Date(b.time);
+        return timeA - timeB;
+      });
+      
+      console.log(`✅ Total messages after merge: ${mergedMessages.length}`);
+      setMessages(mergedMessages);
+      
+      // Update localStorage with merged messages
+      localStorage.setItem(chatKey, JSON.stringify(mergedMessages));
       
     } catch (err) {
       console.error("❌ Error loading messages:", err);
       setError(`Failed to load messages: ${err.message}`);
+      
+      // Even on error, try to show localStorage messages
+      const chatKey = `chat_${account}_${receiver}`;
+      const localMessages = JSON.parse(localStorage.getItem(chatKey) || '[]');
+      if (localMessages.length > 0) {
+        setMessages(localMessages);
+      }
     } finally {
       setLoading(false);
     }
-  }, [account]);
+  }, [account, receiver]);
 
   // Initialize web3 and load messages
   useEffect(() => {
@@ -226,6 +313,14 @@ function Chat({ walletAddress }) {
       mounted = false; 
     };
   }, [loadMessages, walletAddress]);
+
+  // Reload messages when receiver changes
+  useEffect(() => {
+    if (account && receiver) {
+      console.log(`🔄 Loading messages for conversation with ${receiver}`);
+      loadMessages();
+    }
+  }, [account, receiver, loadMessages]);
 
   // Handle incoming WebRTC messages
   const handleIncomingMessage = useCallback(async (data) => {
@@ -292,23 +387,8 @@ function Chat({ walletAddress }) {
       localStorage.setItem(chatKey, JSON.stringify(chatHistory));
       console.log('[Chat] Message saved to local storage');
       
-      // Hash & store on chain in the background (don't wait for it)
-      try {
-        console.log('[Chat] Storing message metadata on chain...');
-        const hash = await hashMessage(messageText);
-        await storeMessageMetadata(receiver, account, hash);
-        console.log('[Chat] Message metadata stored on blockchain');
-        
-        // Update message with hash
-        setMessages(prev => prev.map(msg => 
-          msg.id === newMsg.id 
-            ? { ...msg, messageHash: hash } 
-            : msg
-        ));
-      } catch (err) {
-        console.error('[Chat] Error storing message metadata on blockchain:', err);
-        // Message still shows in UI, just without blockchain confirmation
-      }
+      // Receiver does NOT store metadata on blockchain - only sender does
+      // This avoids the receiver needing to approve a transaction
 
     } catch (err) {
       console.error('[Chat] Error processing incoming message:', err);
@@ -392,7 +472,7 @@ function Chat({ walletAddress }) {
         }
         
         // Peer already exists, process additional signals
-        if (peerRef.current && !peerRef.current.destroyed) {
+        if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
           // Check connection state before processing offer again
           const signalingState = peerRef.current._pc.signalingState;
           const iceState = peerRef.current._pc.iceConnectionState;
@@ -436,6 +516,19 @@ function Chat({ walletAddress }) {
       };
     }
   }, [receiver, account]); // Don't include isInitiator - let startChat() handle cleanup
+
+  // Auto-connect when component loads if receiver is set
+  useEffect(() => {
+    if (receiver && account && receiver !== account && !connected && !isInitiator) {
+      // Small delay to ensure setup is complete
+      const timer = setTimeout(() => {
+        console.log('[Chat] Auto-starting chat with receiver:', receiver);
+        startChat();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiver, account]);
 
   // Start P2P chat as initiator
   const startChat = () => {
@@ -487,7 +580,7 @@ function Chat({ walletAddress }) {
         return;
       }
       
-      if (peerRef.current && !peerRef.current.destroyed) {
+      if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
         // Check connection state before processing answer
         const signalingState = peerRef.current._pc.signalingState;
         const iceState = peerRef.current._pc.iceConnectionState;
@@ -546,28 +639,42 @@ function Chat({ walletAddress }) {
         throw new Error('Connection not ready. Please wait...');
       }
 
-      // Create a message object with metadata
+      // STEP 1: Upload message to IPFS first
+      console.log('[Chat] 📤 Uploading message to IPFS...');
+      const ipfsHash = await uploadToIPFS(message, {
+        sender: account,
+        receiver: receiver,
+        timestamp: new Date().toISOString()
+      });
+      console.log('[Chat] ✅ IPFS upload successful:', ipfsHash);
+
+      // STEP 2: Store metadata on blockchain (requires transaction approval)
+      console.log('[Chat] 📝 Storing message metadata on blockchain...');
+      const hash = await hashMessage(message);
+      await storeMessageMetadata(account, receiver, hash, ipfsHash);
+      console.log('[Chat] ✅ Blockchain transaction approved!');
+
+      // STEP 3: Send the message via WebRTC for real-time delivery
       const messageObj = {
         text: message,
         timestamp: new Date().toISOString(),
         sender: account,
-        type: 'text'
+        type: 'text',
+        ipfsHash: ipfsHash
       };
 
-      // Convert to JSON string
       const messageString = JSON.stringify(messageObj);
-      console.log('[Chat] Sending message:', messageString);
+      console.log('[Chat] 📨 Sending message via WebRTC:', messageString);
       
-      // Send the message with error handling
       try {
         peerRef.current.send(messageString);
-        console.log('[Chat] Message sent successfully');
+        console.log('[Chat] ✅ Message sent successfully');
       } catch (sendError) {
         console.error('[Chat] Error sending message:', sendError);
         throw new Error('Failed to send message: ' + sendError.message);
       }
 
-      // Create message object for UI (optimistic update)
+      // Create message object for UI
       const newMessage = {
         id: Date.now(),
         content: message,
@@ -576,36 +683,14 @@ function Chat({ walletAddress }) {
         time: new Date(),
         timestamp: new Date().toISOString(),
         incoming: false,
-        status: 'sending',
-        messageHash: null
+        status: 'sent',
+        messageHash: hash,
+        ipfsHash: ipfsHash
       };
 
       console.log('[Chat] Adding message to UI:', newMessage);
       setMessages(prev => [...prev, newMessage]);
       setMessage(''); // Clear input
-
-      // Store metadata in the background
-      try {
-        console.log('[Chat] Storing message metadata on chain...');
-        const hash = await hashMessage(message);
-        await storeMessageMetadata(account, receiver, hash);
-        
-        console.log('[Chat] Message metadata stored, updating UI');
-        // Update message status with the hash
-        setMessages(prev => prev.map(msg => 
-          msg.id === newMessage.id 
-            ? { ...msg, status: 'sent', messageHash: hash } 
-            : msg
-        ));
-      } catch (err) {
-        console.error('[Chat] Error storing message metadata:', err);
-        // Update message status to show error
-        setMessages(prev => prev.map(msg => 
-          msg.id === newMessage.id 
-            ? { ...msg, status: 'error', error: 'Sent but failed to store on blockchain' } 
-            : msg
-        ));
-      }
     } catch (err) {
       console.error('[Chat] Send error:', err);
       setError('Failed to send message: ' + (err.message || 'Unknown error'));
@@ -654,9 +739,17 @@ function Chat({ walletAddress }) {
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', p: 3 }}>
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          💬 Decentralized Chat
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <IconButton 
+            onClick={() => navigate('/friends')} 
+            sx={{ mr: 2, color: 'primary.main' }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h4" component="h1">
+            💬 Chat {friendName && `with ${friendName}`}
+          </Typography>
+        </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
           <AccountCircle color="primary" sx={{ mr: 1 }} />
           <Typography variant="subtitle1">
@@ -668,6 +761,16 @@ function Chat({ walletAddress }) {
             <code>{account}</code>
           </Typography>
         </Box>
+        {receiver && (
+          <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(138, 102, 255, 0.1)', borderRadius: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Chatting with: <strong>{friendName || 'Unknown'}</strong>
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+              {receiver}
+            </Typography>
+          </Box>
+        )}
 
         {error && (
           <Paper 
@@ -685,29 +788,22 @@ function Chat({ walletAddress }) {
         )}
 
         <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-          <Box sx={{ mb: 2 }}>
-            <TextField
-              label="To (Wallet Address)"
-              variant="outlined"
-              size="small"
-              value={receiver}
-              onChange={(e) => setReceiver(e.target.value)}
-              sx={{ width: '100%' }}
-              placeholder="Enter recipient's wallet address"
-            />
-          </Box>
-
-          {/* Connection Status and Start Chat Button */}
+          {/* Connection Status */}
           {!connected ? (
-            <Button
-              variant="contained"
-              onClick={startChat}
-              disabled={!receiver.trim() || receiver === account || isInitiator}
-              sx={{ mb: 2, minWidth: '200px' }}
-              color="primary"
+            <Paper 
+              sx={{ 
+                mb: 2, 
+                p: 1.5, 
+                backgroundColor: 'rgba(138, 102, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
             >
-              {isInitiator ? 'Connecting...' : 'Start Chat'}
-            </Button>
+              <Typography variant="body1" color="primary" fontWeight="bold">
+                ⏳ Connecting...
+              </Typography>
+            </Paper>
           ) : (
             <Paper 
               sx={{ 
@@ -723,12 +819,6 @@ function Chat({ walletAddress }) {
                 ✓ Connected - Ready to chat!
               </Typography>
             </Paper>
-          )}
-          
-          {!connected && !isInitiator && receiver.trim() && receiver !== account && (
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-              💡 Waiting to receive connection from this address, or click "Start Chat" to initiate
-            </Typography>
           )}
 
           <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>

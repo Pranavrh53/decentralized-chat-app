@@ -31,16 +31,22 @@ const Home = ({ walletAddress, onLogout }) => {
     const allUsersData = JSON.parse(localStorage.getItem('allChatUsers') || '[]');
     const customNames = JSON.parse(localStorage.getItem(`friend_names_${walletAddress}`) || '{}');
     
-    // Get friend details
-    const friendsData = friendsList.map(friendAddress => {
-      const user = allUsersData.find(u => u.address.toLowerCase() === friendAddress.toLowerCase());
-      const customName = customNames[friendAddress.toLowerCase()];
+    // Get friend details - handle both old format (strings) and new format (objects)
+    const friendsData = friendsList.map(friendItem => {
+      // Extract address from either string or object format
+      const friendAddress = typeof friendItem === 'string' ? friendItem : friendItem.address;
+      const friendName = typeof friendItem === 'object' && friendItem.name ? friendItem.name : null;
+      
+      if (!friendAddress) return null;
+      
+      const user = allUsersData.find(u => u.address && u.address.toLowerCase() === friendAddress.toLowerCase());
+      const customName = friendName || customNames[friendAddress.toLowerCase()];
       
       if (user) {
         return { ...user, username: customName || user.username };
       }
       return { address: friendAddress, username: customName || 'Unknown User' };
-    });
+    }).filter(Boolean);
     
     setFriends(friendsData);
   };
@@ -55,14 +61,22 @@ const Home = ({ walletAddress, onLogout }) => {
     
     // Add existing registered users
     allUsersData.forEach(user => {
-      allUsersMap.set(user.address.toLowerCase(), user);
+      if (user.address) {
+        allUsersMap.set(user.address.toLowerCase(), user);
+      }
     });
     
     // Add friends who might not be in allChatUsers yet (manually added)
-    friendsList.forEach(friendAddr => {
+    // Handle both old format (strings) and new format (objects)
+    friendsList.forEach(friendItem => {
+      const friendAddr = typeof friendItem === 'string' ? friendItem : friendItem.address;
+      const friendName = typeof friendItem === 'object' && friendItem.name ? friendItem.name : null;
+      
+      if (!friendAddr) return;
+      
       const lowerAddr = friendAddr.toLowerCase();
       if (!allUsersMap.has(lowerAddr)) {
-        const customName = customNames[lowerAddr];
+        const customName = friendName || customNames[lowerAddr];
         allUsersMap.set(lowerAddr, {
           address: friendAddr,
           username: customName || 'Unknown User',
@@ -70,7 +84,7 @@ const Home = ({ walletAddress, onLogout }) => {
         });
       } else {
         // Update with custom name if exists
-        const customName = customNames[lowerAddr];
+        const customName = friendName || customNames[lowerAddr];
         if (customName) {
           const user = allUsersMap.get(lowerAddr);
           allUsersMap.set(lowerAddr, { ...user, username: customName });
@@ -79,9 +93,13 @@ const Home = ({ walletAddress, onLogout }) => {
     });
     
     // Convert back to array and filter out current user and friends
+    const friendAddresses = friendsList.map(item => 
+      typeof item === 'string' ? item.toLowerCase() : item.address?.toLowerCase()
+    ).filter(Boolean);
+    
     const availableUsers = Array.from(allUsersMap.values()).filter(user => 
-      user.address.toLowerCase() !== walletAddress?.toLowerCase() &&
-      !friendsList.some(friendAddr => friendAddr.toLowerCase() === user.address.toLowerCase())
+      user.address && user.address.toLowerCase() !== walletAddress?.toLowerCase() &&
+      !friendAddresses.includes(user.address.toLowerCase())
     );
     
     setAllUsers(availableUsers);
@@ -100,7 +118,13 @@ const Home = ({ walletAddress, onLogout }) => {
     
     if (window.confirm(`Remove ${friend.username} from your friends?`)) {
       const friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
-      const updatedList = friendsList.filter(addr => addr.toLowerCase() !== friend.address.toLowerCase());
+      
+      // Handle both old format (strings) and new format (objects)
+      const updatedList = friendsList.filter(item => {
+        const addr = typeof item === 'string' ? item : item.address;
+        return addr && addr.toLowerCase() !== friend.address.toLowerCase();
+      });
+      
       localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(updatedList));
       
       alert(`✅ ${friend.username} removed from friends`);
@@ -112,8 +136,19 @@ const Home = ({ walletAddress, onLogout }) => {
   const addFriend = (user) => {
     const friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
     
-    if (!friendsList.includes(user.address)) {
-      friendsList.push(user.address);
+    // Check if friend already exists - handle both old and new formats
+    const friendExists = friendsList.some(item => {
+      const addr = typeof item === 'string' ? item : item.address;
+      return addr && addr.toLowerCase() === user.address.toLowerCase();
+    });
+    
+    if (!friendExists) {
+      // Add to friends list in new object format
+      friendsList.push({
+        address: user.address,
+        name: user.username || 'Friend',
+        addedAt: new Date().toISOString()
+      });
       localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(friendsList));
       alert(`✅ ${user.username} added to your friends!`);
       loadFriends();
@@ -142,13 +177,23 @@ const Home = ({ walletAddress, onLogout }) => {
     
     const friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
     
-    if (friendsList.some(f => f.toLowerCase() === address.toLowerCase())) {
+    // Check if friend already exists - handle both old and new formats
+    const friendExists = friendsList.some(item => {
+      const addr = typeof item === 'string' ? item : item.address;
+      return addr && addr.toLowerCase() === address.toLowerCase();
+    });
+    
+    if (friendExists) {
       alert('⚠️ This user is already your friend!');
       return;
     }
     
-    // Add to friends list
-    friendsList.push(address);
+    // Add to friends list in new object format
+    friendsList.push({
+      address: address,
+      name: name || 'Friend',
+      addedAt: new Date().toISOString()
+    });
     localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(friendsList));
     
     // Save custom name if provided

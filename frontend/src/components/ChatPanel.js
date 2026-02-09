@@ -91,15 +91,8 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       chatHistory.push(newMsg);
       localStorage.setItem(chatKey, JSON.stringify(chatHistory));
       
-      try {
-        const hash = await hashMessage(messageText);
-        await storeMessageMetadata(receiver, walletAddress, hash);
-        setMessages(prev => prev.map(msg => 
-          msg.id === newMsg.id ? { ...msg, messageHash: hash } : msg
-        ));
-      } catch (err) {
-        console.error('[ChatPanel] Error storing message metadata:', err);
-      }
+      // Receiver does NOT store metadata on blockchain - only sender does
+      // This avoids the receiver needing to approve a transaction
     } catch (err) {
       console.error('[ChatPanel] Error processing incoming message:', err);
     }
@@ -154,7 +147,7 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
           return;
         }
         
-        if (peerRef.current && !peerRef.current.destroyed) {
+        if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
           const iceState = peerRef.current._pc.iceConnectionState;
           
           if (signal.type === 'offer' && iceState === 'connected') {
@@ -230,7 +223,7 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
     const handleSignal = (signal) => {
       if (signal.type === 'offer') return;
       
-      if (peerRef.current && !peerRef.current.destroyed) {
+      if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
         const signalingState = peerRef.current._pc.signalingState;
         const iceState = peerRef.current._pc.iceConnectionState;
         
@@ -273,6 +266,11 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
         throw new Error('Connection not ready');
       }
 
+      // IMPORTANT: Store metadata on blockchain FIRST (requires transaction approval)
+      // Only after approval, send the actual message via WebRTC
+      const hash = await hashMessage(message);
+      await storeMessageMetadata(walletAddress, receiver, hash);
+
       const messageObj = {
         text: message,
         timestamp: new Date().toISOString(),
@@ -291,8 +289,8 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
         time: new Date(),
         timestamp: new Date().toISOString(),
         incoming: false,
-        status: 'sending',
-        messageHash: null
+        status: 'sent',
+        messageHash: hash
       };
 
       setMessages(prev => [...prev, newMessage]);
@@ -303,19 +301,6 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       localStorage.setItem(chatKey, JSON.stringify(chatHistory));
       
       setMessage('');
-
-      try {
-        const hash = await hashMessage(message);
-        await storeMessageMetadata(walletAddress, receiver, hash);
-        setMessages(prev => prev.map(msg => 
-          msg.id === newMessage.id ? { ...msg, status: 'sent', messageHash: hash } : msg
-        ));
-      } catch (err) {
-        console.error('[ChatPanel] Error storing metadata:', err);
-        setMessages(prev => prev.map(msg => 
-          msg.id === newMessage.id ? { ...msg, status: 'error' } : msg
-        ));
-      }
     } catch (err) {
       console.error('[ChatPanel] Send error:', err);
       setError('Failed to send: ' + err.message);

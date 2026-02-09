@@ -115,15 +115,15 @@ const Navbar = ({ username, walletAddress, onLogout }) => {
       
       <div style={styles.navLinks}>
         <Link 
-          to="/all-users" 
+          to="/friends" 
           style={{
             ...styles.navLink,
-            ...(isActive('/all-users') ? styles.navLinkActive : {})
+            ...(isActive('/friends') ? styles.navLinkActive : {})
           }}
           onMouseEnter={(e) => e.target.style.color = '#ff8c42'}
-          onMouseLeave={(e) => !isActive('/all-users') && (e.target.style.color = '#b8b8d1')}
+          onMouseLeave={(e) => !isActive('/friends') && (e.target.style.color = '#b8b8d1')}
         >
-          All Users
+          Friends
         </Link>
         <Link 
           to="/home" 
