@@ -106,38 +106,71 @@ const Friends = ({ walletAddress, onLogout }) => {
   }, [walletAddress, contract]);
 
   const loadFriends = async () => {
-    if (!walletAddress || !contract) return;
+    if (!walletAddress) return;
     
     setLoading(true);
     try {
-      console.log('Loading friends from blockchain...');
+      let blockchainFriends = [];
       
-      // Get friends from blockchain
-      const friendAddresses = await contract.methods.getFriends(walletAddress).call();
+      // Try to load from blockchain if contract is available
+      if (contract) {
+        try {
+          console.log('Loading friends from blockchain...');
+          const friendAddresses = await contract.methods.getFriends(walletAddress).call();
+          
+          // Get detailed information for each friend
+          const friendsData = await Promise.all(
+            friendAddresses.map(async (friendAddress) => {
+              const friendData = await contract.methods.getFriend(walletAddress, friendAddress).call();
+              return {
+                address: friendData.friendAddress.toLowerCase(),
+                name: friendData.name,
+                addedAt: new Date(Number(friendData.addedAt) * 1000).toISOString(),
+                exists: friendData.exists,
+                source: 'blockchain'
+              };
+            })
+          );
+          
+          blockchainFriends = friendsData.filter(f => f.exists);
+          console.log(`✅ Loaded ${blockchainFriends.length} friends from blockchain`);
+        } catch (err) {
+          console.error('Error loading from blockchain:', err);
+        }
+      }
       
-      // Get detailed information for each friend
-      const friendsData = await Promise.all(
-        friendAddresses.map(async (friendAddress) => {
-          const friendData = await contract.methods.getFriend(walletAddress, friendAddress).call();
-          return {
-            address: friendData.friendAddress,
-            name: friendData.name,
-            addedAt: new Date(Number(friendData.addedAt) * 1000).toISOString(),
-            exists: friendData.exists
-          };
-        })
-      );
+      // Load friends from localStorage (imported or cached)
+      const normalizedAddress = walletAddress.toLowerCase();
+      const localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      console.log(`📦 Found ${localFriends.length} friends in localStorage`);
       
-      // Filter only existing friends
-      const activeFriends = friendsData.filter(f => f.exists);
-      setFriends(activeFriends);
-      console.log(`✅ Loaded ${activeFriends.length} friends from blockchain`);
+      // Merge blockchain and localStorage friends (deduplicate by address)
+      const mergedFriendsMap = new Map();
+      
+      // Add blockchain friends first (they have priority)
+      blockchainFriends.forEach(friend => {
+        mergedFriendsMap.set(friend.address.toLowerCase(), friend);
+      });
+      
+      // Add localStorage friends (won't override blockchain friends)
+      localFriends.forEach(friend => {
+        const addr = friend.address.toLowerCase();
+        if (!mergedFriendsMap.has(addr)) {
+          mergedFriendsMap.set(addr, {
+            ...friend,
+            address: addr,
+            source: 'imported'
+          });
+        }
+      });
+      
+      const mergedFriends = Array.from(mergedFriendsMap.values());
+      setFriends(mergedFriends);
+      console.log(`✅ Total friends after merge: ${mergedFriends.length}`);
+      
     } catch (error) {
       console.error('Error loading friends:', error);
-      setError('Failed to load friends from blockchain');
-      // Fallback to localStorage
-      const localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
-      setFriends(localFriends);
+      setError('Failed to load friends');
     } finally {
       setLoading(false);
     }

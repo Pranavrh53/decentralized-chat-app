@@ -126,6 +126,17 @@ const Navbar = ({ username, walletAddress, onLogout }) => {
           Friends
         </Link>
         <Link 
+          to="/groups" 
+          style={{
+            ...styles.navLink,
+            ...(isActive('/groups') ? styles.navLinkActive : {})
+          }}
+          onMouseEnter={(e) => e.target.style.color = '#ff8c42'}
+          onMouseLeave={(e) => !isActive('/groups') && (e.target.style.color = '#b8b8d1')}
+        >
+          Groups
+        </Link>
+        <Link 
           to="/home" 
           style={{
             ...styles.navLink,

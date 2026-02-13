@@ -4,6 +4,8 @@ import Login from "./components/Login";
 import Home from "./pages/Home";
 import Chat from "./pages/Chat";
 import Friends from "./pages/Friends";
+import Groups from "./pages/Groups";
+import GroupChat from "./pages/GroupChat";
 import { initWeb3 } from "./utils/blockchain";
 
 function App() {
@@ -80,6 +82,26 @@ function App() {
           element={
             walletAddress ? (
               <Friends walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+        <Route
+          path="/groups"
+          element={
+            walletAddress ? (
+              <Groups walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+        <Route
+          path="/group-chat/:groupId"
+          element={
+            walletAddress ? (
+              <GroupChat walletAddress={walletAddress} onLogout={handleLogout} />
             ) : (
               <Navigate to="/" />
             )

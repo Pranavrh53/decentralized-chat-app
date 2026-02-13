@@ -272,37 +272,119 @@ export async function importChatHistory(encryptedData, password, currentWalletAd
     }
 
     // Step 4: Store friends in localStorage
-    const friendsKey = `friends_${currentWalletAddress || data.walletAddress}`;
-    localStorage.setItem(friendsKey, JSON.stringify(data.friends));
-    console.log(`✅ Imported ${data.friends.length} friends`);
+    const normalizedCurrentAddress = (currentWalletAddress || data.walletAddress).toLowerCase();
+    const exporterAddress = data.walletAddress.toLowerCase();
+    const friendsKey = `friends_${normalizedCurrentAddress}`;
+    
+    // Normalize friend addresses and handle importing someone else's data
+    const normalizedFriends = data.friends
+      .map(f => ({
+        ...f,
+        address: f.address.toLowerCase()
+      }))
+      .filter(f => {
+        // If importing your own data, keep all friends
+        if (!currentWalletAddress || normalizedCurrentAddress === exporterAddress) {
+          return true;
+        }
+        
+        // If importing someone else's data, exclude yourself from their friends list
+        // (you don't want to add yourself as a friend)
+        if (f.address === normalizedCurrentAddress) {
+          console.log(`⏭️  Skipping self from imported friends: ${f.address}`);
+          return false;
+        }
+        
+        return true;
+      });
+    
+    // If importing someone else's data, add THEM as a friend (if not already present)
+    if (currentWalletAddress && normalizedCurrentAddress !== exporterAddress) {
+      const hasExporter = normalizedFriends.some(f => f.address === exporterAddress);
+      if (!hasExporter) {
+        normalizedFriends.push({
+          address: exporterAddress,
+          name: data.username || 'Imported Friend',
+          addedAt: new Date().toISOString()
+        });
+        console.log(`➕ Added exporter as friend: ${exporterAddress} (${data.username})`);
+      }
+    }
+    
+    // Merge with existing localStorage friends
+    const existingFriends = JSON.parse(localStorage.getItem(friendsKey) || '[]');
+    const mergedFriendsMap = new Map();
+    
+    // Add existing friends
+    existingFriends.forEach(f => {
+      mergedFriendsMap.set(f.address.toLowerCase(), f);
+    });
+    
+    // Add/update imported friends
+    normalizedFriends.forEach(f => {
+      mergedFriendsMap.set(f.address, f);
+    });
+    
+    const finalFriends = Array.from(mergedFriendsMap.values());
+    localStorage.setItem(friendsKey, JSON.stringify(finalFriends));
+    console.log(`✅ Imported ${normalizedFriends.length} friends, total: ${finalFriends.length}`);
 
     // Step 5: Store messages in localStorage for each conversation
     let importedMessageCount = 0;
+    // Reuse exporterAddress and normalizedCurrentAddress from Step 4 above
+    
     for (const [friendAddress, messages] of Object.entries(data.messages)) {
+      // Normalize friend address (case-insensitive)
+      let normalizedFriendAddress = friendAddress.toLowerCase();
+      
+      // IMPORTANT: If importing someone else's data and the friend address is YOUR address,
+      // then the conversation should be with the EXPORTER, not yourself
+      // Example: User A exports messages to User B. User B imports it.
+      // In User A's export, the friend is User B. But User B wants to see it as a chat with User A.
+      if (currentWalletAddress && normalizedFriendAddress === normalizedCurrentAddress && normalizedCurrentAddress !== exporterAddress) {
+        console.log(`🔄 Flipping conversation: ${normalizedFriendAddress} → ${exporterAddress} (importing someone else's data)`);
+        normalizedFriendAddress = exporterAddress;
+      }
+      
       // Normalize message structure to match what Chat.js expects
       const normalizedMessages = messages.map(msg => {
         // Ensure consistent structure
         const time = msg.time || msg.timestamp || new Date().toISOString();
         const content = msg.content || msg.text || '';
         
+        // Determine if message is incoming based on current user
+        let isIncoming;
+        const msgSender = msg.sender ? msg.sender.toLowerCase() : '';
+        
+        if (currentWalletAddress) {
+          // If importing as a different user, flip the perspective
+          isIncoming = msgSender !== normalizedCurrentAddress;
+        } else {
+          // If importing as the same user, keep original perspective
+          isIncoming = msg.incoming !== undefined ? msg.incoming : (msgSender !== exporterAddress);
+        }
+        
         return {
           id: msg.id || Date.now() + Math.random(),
           content: content,
           text: content,
-          sender: msg.sender,
-          receiver: msg.receiver,
+          sender: msgSender,
+          receiver: msg.receiver ? msg.receiver.toLowerCase() : '',
           time: time,
           timestamp: typeof time === 'string' ? time : time.toISOString(),
-          incoming: msg.incoming !== undefined ? msg.incoming : (msg.sender?.toLowerCase() !== data.walletAddress.toLowerCase()),
+          incoming: isIncoming,
           status: msg.status || 'delivered',
           messageHash: msg.messageHash,
           ipfsHash: msg.ipfsHash
         };
       });
       
-      const chatKey = `chat_${currentWalletAddress || data.walletAddress}_${friendAddress}`;
+      // Store with normalized addresses (lowercase)
+      const chatKey = `chat_${normalizedCurrentAddress}_${normalizedFriendAddress}`;
       localStorage.setItem(chatKey, JSON.stringify(normalizedMessages));
       importedMessageCount += normalizedMessages.length;
+      
+      console.log(`💾 Stored ${normalizedMessages.length} messages for ${normalizedFriendAddress} with key: ${chatKey}`);
     }
     console.log(`✅ Imported ${importedMessageCount} messages across ${Object.keys(data.messages).length} conversations`);
 
