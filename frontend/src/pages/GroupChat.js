@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { initWeb3, getWeb3, hashMessage } from '../utils/blockchain';
-import { uploadToIPFS, retrieveFromIPFS } from '../utils/ipfs';
+import { uploadToIPFS, retrieveFromIPFS, uploadFileToIPFS, getIPFSFileUrl, isImageFile, isFileSizeAcceptable } from '../utils/ipfs';
 import ChatMetadataABI from '../abis/ChatMetadata.json';
 import {
   Box,
@@ -24,7 +24,9 @@ import {
   ArrowBack as ArrowBackIcon,
   People as PeopleIcon,
   MoreVert as MoreVertIcon,
-  ExitToApp as ExitIcon
+  ExitToApp as ExitIcon,
+  AttachFile as AttachFileIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -39,7 +41,11 @@ function GroupChat({ walletAddress }) {
   const [error, setError] = useState('');
   const [contract, setContract] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const username = localStorage.getItem('username') || 'Anonymous';
 
   // Initialize contract
@@ -162,6 +168,104 @@ function GroupChat({ walletAddress }) {
       setError('Failed to load messages');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle file selection
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check file size (max 10MB)
+    if (!isFileSizeAcceptable(file.size)) {
+      setError('File size must be less than 10MB');
+      return;
+    }
+
+    setSelectedFile(file);
+
+    // Create preview for images
+    if (isImageFile(file.type)) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFilePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setFilePreview(null);
+    }
+
+    setError('');
+  };
+
+  // Clear selected file
+  const handleClearFile = () => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Send file via IPFS
+  const handleSendFile = async () => {
+    if (!selectedFile) return;
+
+    setLoading(true);
+    setUploadProgress(0);
+
+    try {
+      // Upload file to IPFS
+      console.log('📤 Uploading file to IPFS...');
+      const fileData = await uploadFileToIPFS(selectedFile, {
+        sender: walletAddress,
+        groupId: groupId,
+        timestamp: new Date().toISOString()
+      });
+
+      setUploadProgress(50);
+
+      // Store file metadata on blockchain
+      const hash = await hashMessage(fileData.ipfsHash);
+      await contract.methods
+        .sendGroupMessage(groupId, hash, fileData.ipfsHash)
+        .send({ from: walletAddress });
+
+      setUploadProgress(75);
+
+      // Add to local messages
+      const newMessage = {
+        id: Date.now().toString(),
+        type: 'file',
+        content: fileData.fileName,
+        ipfsHash: fileData.ipfsHash,
+        fileName: fileData.fileName,
+        fileType: fileData.fileType,
+        fileSize: fileData.fileSize,
+        url: fileData.url,
+        sender: walletAddress,
+        timestamp: new Date().toISOString(),
+        isOwn: true
+      };
+
+      const updatedMessages = [...messages, newMessage];
+      setMessages(updatedMessages);
+
+      // Save to localStorage
+      const localKey = `group_messages_${groupId}`;
+      localStorage.setItem(localKey, JSON.stringify(updatedMessages));
+
+      setUploadProgress(100);
+
+      // Clear file selection
+      handleClearFile();
+      
+    } catch (error) {
+      console.error('Error sending file:', error);
+      setError(`Failed to send file: ${error.message}`);
+    } finally {
+      setLoading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -452,7 +556,60 @@ function GroupChat({ walletAddress }) {
                   ...(msg.isOwn ? styles.messageBubbleOwn : {})
                 }}
               >
-                <Typography style={styles.messageText}>{msg.content}</Typography>
+                {/* File Message */}
+                {msg.type === 'file' ? (
+                  <Box>
+                    {isImageFile(msg.fileType) ? (
+                      <Box>
+                        <img 
+                          src={msg.url || getIPFSFileUrl(msg.ipfsHash)} 
+                          alt={msg.fileName}
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '300px',
+                            borderRadius: '8px',
+                            marginBottom: '8px'
+                          }}
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'block';
+                          }}
+                        />
+                        <Box style={{ display: 'none', color: '#ff6b6b' }}>
+                          ⚠️ Image failed to load
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box style={{ 
+                        padding: '12px',
+                        background: 'rgba(0,0,0,0.2)',
+                        borderRadius: '8px',
+                        marginBottom: '8px'
+                      }}>
+                        <Box style={{ fontSize: '32px', marginBottom: '8px' }}>📄</Box>
+                        <Typography style={{ color: '#fff', fontWeight: 600 }}>{msg.fileName}</Typography>
+                        <Typography style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>
+                          {(msg.fileSize / 1024).toFixed(2)} KB
+                        </Typography>
+                      </Box>
+                    )}
+                    <a 
+                      href={msg.url || getIPFSFileUrl(msg.ipfsHash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: '#a78bfa',
+                        textDecoration: 'underline',
+                        fontSize: '14px'
+                      }}
+                    >
+                      📥 Download
+                    </a>
+                  </Box>
+                ) : (
+                  /* Text Message */
+                  <Typography style={styles.messageText}>{msg.content}</Typography>
+                )}
               </Paper>
               <Typography style={styles.messageTime}>
                 {formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true })}
@@ -464,28 +621,116 @@ function GroupChat({ walletAddress }) {
       </Box>
 
       <Box style={styles.inputContainer}>
-        <input
-          type="text"
-          placeholder="Type a message..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && !loading && handleSendMessage()}
-          style={styles.input}
-          disabled={loading}
-        />
-        <button
-          onClick={handleSendMessage}
-          disabled={loading || !message.trim()}
-          style={{
-            ...styles.sendButton,
-            opacity: loading || !message.trim() ? 0.5 : 1,
-            cursor: loading || !message.trim() ? 'not-allowed' : 'pointer'
-          }}
-          onMouseEnter={(e) => !loading && (e.currentTarget.style.transform = 'scale(1.1)')}
-          onMouseLeave={(e) => !loading && (e.currentTarget.style.transform = 'scale(1)')}
-        >
-          {loading ? <CircularProgress size={24} style={{ color: 'white' }} /> : <SendIcon />}
-        </button>
+        {/* File Preview */}
+        {selectedFile && (
+          <Box style={{
+            padding: '12px',
+            background: 'rgba(138, 102, 255, 0.2)',
+            borderRadius: '8px',
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            {filePreview ? (
+              <img 
+                src={filePreview} 
+                alt="preview" 
+                style={{
+                  width: '60px',
+                  height: '60px',
+                  objectFit: 'cover',
+                  borderRadius: '6px'
+                }}
+              />
+            ) : (
+              <Box style={{
+                width: '60px',
+                height: '60px',
+                background: 'rgba(138, 102, 255, 0.3)',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '24px'
+              }}>
+                📄
+              </Box>
+            )}
+            <Box style={{ flex: 1 }}>
+              <Typography style={{ color: '#fff', fontWeight: 600, fontSize: '14px' }}>
+                {selectedFile.name}
+              </Typography>
+              <Typography style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>
+                {(selectedFile.size / 1024).toFixed(2)} KB
+              </Typography>
+            </Box>
+            <IconButton onClick={handleClearFile} style={{ color: '#ef4444' }}>
+              <CloseIcon />
+            </IconButton>
+            {!loading && (
+              <Button
+                onClick={handleSendFile}
+                variant="contained"
+                style={{
+                  background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+                  color: 'white'
+                }}
+              >
+                Send File 📤
+              </Button>
+            )}
+            {loading && (
+              <Typography style={{ color: '#8a66ff', fontSize: '12px' }}>
+                {uploadProgress}%
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Input Row */}
+        <Box style={{ display: 'flex', gap: '10px' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept="image/*,.pdf,.doc,.docx,.txt"
+          />
+          <IconButton
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            style={{
+              color: loading ? '#666' : '#8a66ff',
+              background: 'rgba(138, 102, 255, 0.2)',
+              cursor: loading ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <AttachFileIcon />
+          </IconButton>
+          <input
+            type="text"
+            placeholder="Type a message..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && !loading && handleSendMessage()}
+            style={styles.input}
+            disabled={loading}
+          />
+          <button
+            onClick={handleSendMessage}
+            disabled={loading || !message.trim()}
+            style={{
+              ...styles.sendButton,
+              opacity: loading || !message.trim() ? 0.5 : 1,
+              cursor: loading || !message.trim() ? 'not-allowed' : 'pointer'
+            }}
+            onMouseEnter={(e) => !loading && (e.currentTarget.style.transform = 'scale(1.1)')}
+            onMouseLeave={(e) => !loading && (e.currentTarget.style.transform = 'scale(1)')}
+          >
+            {loading ? <CircularProgress size={24} style={{ color: 'white' }} /> : <SendIcon />}
+          </button>
+        </Box>
       </Box>
     </Box>
   );

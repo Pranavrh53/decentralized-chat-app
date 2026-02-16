@@ -6,6 +6,7 @@ import {
   hashMessage 
 } from "../utils/blockchain";
 import { createPeer, setupSignaling, cleanup, setGlobalCallbacks } from "../utils/webrtc";
+import { uploadFileToIPFS, getIPFSFileUrl, isImageFile, isFileSizeAcceptable } from "../utils/ipfs";
 
 const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
   const [messages, setMessages] = useState([]);
@@ -14,9 +15,13 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
   const [error, setError] = useState(null);
   const [connected, setConnected] = useState(false);
   const [isInitiator, setIsInitiator] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const peerRef = useRef(null);
   const handleIncomingMessageRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const receiver = selectedUser?.address;
 
@@ -47,28 +52,47 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
     console.log('[ChatPanel] Raw incoming data:', data);
     
     try {
-      let messageText;
+      let messageData;
       
       if (typeof data === 'string') {
         try {
-          const parsed = JSON.parse(data);
-          messageText = parsed.text || parsed.content || data;
+          messageData = JSON.parse(data);
         } catch (e) {
-          messageText = data;
+          messageData = { type: 'text', text: data };
         }
-      } else if (data instanceof ArrayBuffer || data instanceof Blob) {
-        messageText = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => resolve('(Binary data)');
-          reader.readAsText(new Blob([data]));
-        });
-      } else if (typeof data === 'object' && data !== null) {
-        messageText = data.text || data.content || JSON.stringify(data);
       } else {
-        messageText = String(data);
+        messageData = { type: 'text', text: String(data) };
       }
 
+      // Handle file messages
+      if (messageData.type === 'file') {
+        const newMsg = {
+          id: Date.now(),
+          type: 'file',
+          content: messageData.fileName,
+          ipfsHash: messageData.ipfsHash,
+          fileName: messageData.fileName,
+          fileType: messageData.fileType,
+          fileSize: messageData.fileSize,
+          url: messageData.url,
+          sender: receiver,
+          time: new Date(),
+          timestamp: messageData.timestamp || new Date().toISOString(),
+          incoming: true,
+          status: 'received'
+        };
+
+        setMessages(prev => [...prev, newMsg]);
+        
+        const chatKey = `chat_${walletAddress}_${receiver}`;
+        const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
+        chatHistory.push(newMsg);
+        localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+        return;
+      }
+
+      // Handle text messages
+      const messageText = messageData.text || messageData.content || String(data);
       const newMsg = {
         id: Date.now(),
         content: messageText,
@@ -91,8 +115,6 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       chatHistory.push(newMsg);
       localStorage.setItem(chatKey, JSON.stringify(chatHistory));
       
-      // Receiver does NOT store metadata on blockchain - only sender does
-      // This avoids the receiver needing to approve a transaction
     } catch (err) {
       console.error('[ChatPanel] Error processing incoming message:', err);
     }
@@ -101,6 +123,124 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
   useEffect(() => {
     handleIncomingMessageRef.current = handleIncomingMessage;
   }, [handleIncomingMessage]);
+
+  // Handle file selection
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check file size (max 10MB)
+    if (!isFileSizeAcceptable(file.size)) {
+      setError('File size must be less than 10MB');
+      return;
+    }
+
+    setSelectedFile(file);
+
+    // Create preview for images
+    if (isImageFile(file.type)) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFilePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setFilePreview(null);
+    }
+
+    setError(null);
+  };
+
+  // Clear selected file
+  const handleClearFile = () => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Send file via IPFS
+  const handleSendFile = async () => {
+    if (!selectedFile) return;
+
+    if (!connected || !peerRef.current) {
+      setError('Not connected - click "Connect" first');
+      return;
+    }
+
+    setLoading(true);
+    setUploadProgress(0);
+
+    try {
+      // Upload file to IPFS
+      console.log('📤 Uploading file to IPFS...');
+      const fileData = await uploadFileToIPFS(selectedFile, {
+        sender: walletAddress,
+        receiver: receiver,
+        timestamp: new Date().toISOString()
+      });
+
+      setUploadProgress(50);
+
+      // Store file metadata on blockchain
+      const hash = await hashMessage(fileData.ipfsHash);
+      await storeMessageMetadata(walletAddress, receiver, hash, fileData.ipfsHash);
+
+      setUploadProgress(75);
+
+      // Send file info via WebRTC
+      const fileMessage = {
+        type: 'file',
+        ipfsHash: fileData.ipfsHash,
+        fileName: fileData.fileName,
+        fileType: fileData.fileType,
+        fileSize: fileData.fileSize,
+        url: fileData.url,
+        timestamp: new Date().toISOString(),
+        sender: walletAddress
+      };
+
+      peerRef.current.send(JSON.stringify(fileMessage));
+
+      // Add to local messages
+      const newMessage = {
+        id: Date.now(),
+        type: 'file',
+        content: fileData.fileName,
+        ipfsHash: fileData.ipfsHash,
+        fileName: fileData.fileName,
+        fileType: fileData.fileType,
+        fileSize: fileData.fileSize,
+        url: fileData.url,
+        sender: walletAddress,
+        time: new Date(),
+        timestamp: new Date().toISOString(),
+        incoming: false,
+        status: 'sent'
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+
+      // Save to localStorage
+      const chatKey = `chat_${walletAddress}_${receiver}`;
+      const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
+      chatHistory.push(newMessage);
+      localStorage.setItem(chatKey, JSON.stringify(chatHistory));
+
+      setUploadProgress(100);
+
+      // Clear file selection
+      handleClearFile();
+      
+    } catch (error) {
+      console.error('Error sending file:', error);
+      setError(`Failed to send file: ${error.message}`);
+    } finally {
+      setLoading(false);
+      setUploadProgress(0);
+    }
+  };
 
   // Auto-responder setup
   useEffect(() => {
@@ -445,6 +585,7 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       background: 'rgba(26, 31, 58, 0.8)',
       borderTop: '1px solid rgba(138, 102, 255, 0.2)',
       display: 'flex',
+      flexDirection: 'column',
       gap: '15px',
     },
     input: {
@@ -569,10 +710,70 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
                 ...(msg.incoming ? styles.messageIncoming : styles.messageOutgoing),
               }}
             >
-              <div style={styles.messageText}>{msg.content || msg.text}</div>
-              <div style={styles.messageTime}>
-                {msg.time ? formatTime(msg.time) : 'just now'}
-              </div>
+              {/* File Message */}
+              {msg.type === 'file' ? (
+                <div>
+                  {isImageFile(msg.fileType) ? (
+                    <div>
+                      <img 
+                        src={msg.url || getIPFSFileUrl(msg.ipfsHash)} 
+                        alt={msg.fileName}
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '300px',
+                          borderRadius: '8px',
+                          marginBottom: '8px'
+                        }}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.nextSibling.style.display = 'block';
+                        }}
+                      />
+                      <div style={{ display: 'none', color: '#ff6b6b' }}>
+                        ⚠️ Image failed to load
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ 
+                      padding: '12px',
+                      background: 'rgba(0,0,0,0.2)',
+                      borderRadius: '8px',
+                      marginBottom: '8px'
+                    }}>
+                      <div style={{ fontSize: '32px', marginBottom: '8px' }}>📄</div>
+                      <div style={{ color: '#fff', fontWeight: 600 }}>{msg.fileName}</div>
+                      <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>
+                        {(msg.fileSize / 1024).toFixed(2)} KB
+                      </div>
+                    </div>
+                  )}
+                  <a 
+                    href={msg.url || getIPFSFileUrl(msg.ipfsHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: '#a78bfa',
+                      textDecoration: 'underline',
+                      fontSize: '14px',
+                      display: 'inline-block',
+                      marginBottom: '8px'
+                    }}
+                  >
+                    📥 Download
+                  </a>
+                  <div style={styles.messageTime}>
+                    {msg.time ? formatTime(msg.time) : 'just now'}
+                  </div>
+                </div>
+              ) : (
+                /* Text Message */
+                <div>
+                  <div style={styles.messageText}>{msg.content || msg.text}</div>
+                  <div style={styles.messageTime}>
+                    {msg.time ? formatTime(msg.time) : 'just now'}
+                  </div>
+                </div>
+              )}
             </div>
           ))
         ) : (
@@ -586,46 +787,162 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
 
       {/* Input */}
       <div style={styles.inputContainer}>
-        <input
-          type="text"
-          style={styles.input}
-          placeholder={connected ? "Type a message..." : "Connect first to send messages"}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyPress={handleKeyPress}
-          disabled={!connected}
-          onFocus={(e) => {
-            e.target.style.borderColor = 'rgba(138, 102, 255, 0.6)';
-            e.target.style.background = 'rgba(138, 102, 255, 0.15)';
-          }}
-          onBlur={(e) => {
-            e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)';
-            e.target.style.background = 'rgba(138, 102, 255, 0.1)';
-          }}
-        />
-        <button
-          style={{
-            ...styles.sendBtn,
-            opacity: !connected || !message.trim() ? 0.5 : 1,
-            cursor: !connected || !message.trim() ? 'not-allowed' : 'pointer',
-          }}
-          onClick={handleSendMessage}
-          disabled={!connected || !message.trim()}
-          onMouseEnter={(e) => {
-            if (connected && message.trim()) {
-              e.target.style.transform = 'scale(1.05)';
-              e.target.style.boxShadow = '0 6px 20px rgba(138, 102, 255, 0.6)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (connected && message.trim()) {
-              e.target.style.transform = 'scale(1)';
-              e.target.style.boxShadow = '0 4px 15px rgba(138, 102, 255, 0.4)';
-            }
-          }}
-        >
-          Send 📤
-        </button>
+        {/* File Preview */}
+        {selectedFile && (
+          <div style={{
+            padding: '12px',
+            background: 'rgba(138, 102, 255, 0.2)',
+            borderRadius: '8px',
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            {filePreview ? (
+              <img 
+                src={filePreview} 
+                alt="preview" 
+                style={{
+                  width: '60px',
+                  height: '60px',
+                  objectFit: 'cover',
+                  borderRadius: '6px'
+                }}
+              />
+            ) : (
+              <div style={{
+                width: '60px',
+                height: '60px',
+                background: 'rgba(138, 102, 255, 0.3)',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '24px'
+              }}>
+                📄
+              </div>
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ color: '#fff', fontWeight: 600, fontSize: '14px' }}>
+                {selectedFile.name}
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>
+                {(selectedFile.size / 1024).toFixed(2)} KB
+              </div>
+            </div>
+            <button
+              onClick={handleClearFile}
+              style={{
+                background: 'rgba(239, 68, 68, 0.2)',
+                color: '#ef4444',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 600
+              }}
+            >
+              ✕
+            </button>
+            {!loading && (
+              <button
+                onClick={handleSendFile}
+                style={{
+                  background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 600
+                }}
+              >
+                Send File 📤
+              </button>
+            )}
+            {loading && (
+              <div style={{ color: '#8a66ff', fontSize: '12px' }}>
+                Uploading... {uploadProgress}%
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Input Row */}
+        <div style={{ display: 'flex', gap: '15px', width: '100%' }}>
+          {/* File Upload Button */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept="image/*,.pdf,.doc,.docx,.txt"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!connected || loading}
+            style={{
+              background: 'rgba(138, 102, 255, 0.2)',
+              color: !connected || loading ? '#666' : '#8a66ff',
+              border: '1px solid rgba(138, 102, 255, 0.3)',
+              borderRadius: '12px',
+              padding: '14px 20px',
+              cursor: !connected || loading ? 'not-allowed' : 'pointer',
+              fontSize: '20px',
+              transition: 'all 0.3s ease',
+            }}
+            title="Attach file"
+          >
+            📎
+          </button>
+
+          {/* Text Input */}
+          <input
+            type="text"
+            style={styles.input}
+            placeholder={connected ? "Type a message..." : "Connect first to send messages"}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyPress={handleKeyPress}
+            disabled={!connected || loading}
+            onFocus={(e) => {
+              e.target.style.borderColor = 'rgba(138, 102, 255, 0.6)';
+              e.target.style.background = 'rgba(138, 102, 255, 0.15)';
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)';
+              e.target.style.background = 'rgba(138, 102, 255, 0.1)';
+            }}
+          />
+
+          {/* Send Button */}
+          <button
+            style={{
+              ...styles.sendBtn,
+              opacity: !connected || (!message.trim() && !selectedFile) || loading ? 0.5 : 1,
+              cursor: !connected || (!message.trim() && !selectedFile) || loading ? 'not-allowed' : 'pointer',
+            }}
+            onClick={handleSendMessage}
+            disabled={!connected || !message.trim() || loading}
+            onMouseEnter={(e) => {
+              if (connected && message.trim() && !loading) {
+                e.target.style.transform = 'scale(1.05)';
+                e.target.style.boxShadow = '0 6px 20px rgba(138, 102, 255, 0.6)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (connected && message.trim() && !loading) {
+                e.target.style.transform = 'scale(1)';
+                e.target.style.boxShadow = '0 4px 15px rgba(138, 102, 255, 0.4)';
+              }
+            }}
+          >
+            Send 📤
+          </button>
+        </div>
       </div>
     </div>
   );

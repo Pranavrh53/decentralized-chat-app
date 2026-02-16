@@ -176,10 +176,110 @@ export const isIPFSConfigured = () => {
   return !!(process.env.REACT_APP_PINATA_API_KEY && process.env.REACT_APP_PINATA_SECRET_KEY);
 };
 
+/**
+ * Upload a file (image, document, etc.) to IPFS via Pinata
+ * @param {File} file - The file object to upload
+ * @param {object} metadata - Optional metadata (sender, receiver, timestamp)
+ * @returns {Promise<object>} Object with ipfsHash, fileName, fileType, fileSize
+ */
+export const uploadFileToIPFS = async (file, metadata = {}) => {
+  try {
+    const pinataApiKey = process.env.REACT_APP_PINATA_API_KEY;
+    const pinataSecretKey = process.env.REACT_APP_PINATA_SECRET_KEY;
+
+    if (!pinataApiKey || !pinataSecretKey) {
+      console.warn('⚠️ Pinata credentials not found, cannot upload files');
+      throw new Error('IPFS not configured. Please set Pinata API keys.');
+    }
+
+    // Create FormData for file upload
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Add metadata
+    const pinataMetadata = JSON.stringify({
+      name: file.name,
+      keyvalues: {
+        sender: metadata.sender || '',
+        receiver: metadata.receiver || '',
+        timestamp: metadata.timestamp || new Date().toISOString(),
+        fileType: file.type,
+        fileSize: file.size.toString()
+      }
+    });
+    formData.append('pinataMetadata', pinataMetadata);
+
+    // Upload to Pinata
+    console.log(`📤 Uploading file to IPFS: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+    
+    const response = await axios.post(
+      `${PINATA_API_URL}/pinning/pinFileToIPFS`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'pinata_api_key': pinataApiKey,
+          'pinata_secret_api_key': pinataSecretKey
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+      }
+    );
+
+    const ipfsHash = response.data.IpfsHash;
+    console.log('✅ File uploaded to IPFS:', ipfsHash);
+
+    return {
+      ipfsHash,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      url: `${PINATA_GATEWAY}/${ipfsHash}`
+    };
+
+  } catch (error) {
+    console.error('❌ Error uploading file to IPFS:', error);
+    throw new Error(`Failed to upload file: ${error.message}`);
+  }
+};
+
+/**
+ * Get file URL from IPFS hash
+ * @param {string} ipfsHash - The IPFS CID
+ * @returns {string} Public gateway URL
+ */
+export const getIPFSFileUrl = (ipfsHash) => {
+  if (!ipfsHash) return '';
+  return `${PINATA_GATEWAY}/${ipfsHash}`;
+};
+
+/**
+ * Check if file is an image
+ * @param {string} fileType - MIME type
+ * @returns {boolean}
+ */
+export const isImageFile = (fileType) => {
+  return fileType && fileType.startsWith('image/');
+};
+
+/**
+ * Check if file size is acceptable (max 10MB for free tier)
+ * @param {number} fileSize - Size in bytes
+ * @returns {boolean}
+ */
+export const isFileSizeAcceptable = (fileSize) => {
+  const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+  return fileSize <= MAX_SIZE;
+};
+
 export default {
   uploadToIPFS,
   retrieveFromIPFS,
   encryptMessage,
   decryptMessage,
-  isIPFSConfigured
+  isIPFSConfigured,
+  uploadFileToIPFS,
+  getIPFSFileUrl,
+  isImageFile,
+  isFileSizeAcceptable
 };
