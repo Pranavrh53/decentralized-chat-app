@@ -226,10 +226,15 @@ const Friends = ({ walletAddress, onLogout }) => {
     setLoading(true);
     try {
       console.log(`Adding friend ${newFriendName} to blockchain...`);
+      const web3 = getWeb3();
       
       const tx = await contract.methods
         .addFriend(newFriendAddress.trim(), newFriendName.trim())
-        .send({ from: walletAddress });
+        .send({ 
+          from: walletAddress,
+          gas: 150000, // Reasonable gas limit
+          gasPrice: web3.utils.toWei('2', 'gwei')
+        });
 
       console.log('✅ Friend added! Transaction:', tx.transactionHash);
       
@@ -267,10 +272,15 @@ const Friends = ({ walletAddress, onLogout }) => {
       setLoading(true);
       try {
         console.log(`Removing friend from blockchain...`);
+        const web3 = getWeb3();
         
         const tx = await contract.methods
           .removeFriend(friendAddress)
-          .send({ from: walletAddress });
+          .send({ 
+            from: walletAddress,
+            gas: 100000, // Limit gas to prevent high fees
+            gasPrice: web3.utils.toWei('2', 'gwei') // Set reasonable gas price
+          });
 
         console.log('✅ Friend removed! Transaction:', tx.transactionHash);
         
@@ -618,13 +628,15 @@ const Friends = ({ walletAddress, onLogout }) => {
                         </Typography>
                       }
                       secondary={
-                        <Box sx={{ mt: 1 }}>
+                        <Box sx={{ mt: 1 }} component="div">
                           <Typography
                             variant="body2"
+                            component="span"
                             sx={{
                               color: '#b8b8d1',
                               fontFamily: 'monospace',
-                              fontSize: '13px'
+                              fontSize: '13px',
+                              display: 'block'
                             }}
                           >
                             {friend.address}
