@@ -1,5 +1,8 @@
 import Peer from 'simple-peer';
 
+// Cache buster - increment to force reload
+console.log('[webrtc.js] 🔥 LOADED - Version 7.0 - FIXED STREAM EVENTS 🔥');
+
 // Globals
 let currentPeer = null;
 let ws = null;
@@ -24,18 +27,49 @@ const ICE_SERVERS = [
 /**
  * Get user media (video/audio)
  * @param {boolean} video - Enable video
+/**
+ * Get user media (video/audio)
+ * @param {boolean} video - Enable video
  * @param {boolean} audio - Enable audio
  * @returns {Promise<MediaStream>}
  */
 export const getUserMedia = async (video = true, audio = true) => {
   try {
+    console.log('[WebRTC] 🎤 Requesting user media:', { video, audio });
     const stream = await navigator.mediaDevices.getUserMedia({ video, audio });
     localStream = stream;
     console.log('[WebRTC] ✅ Got user media:', { video, audio });
+    console.log('[WebRTC] Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.label}`));
     return stream;
   } catch (error) {
-    console.error('[WebRTC] ❌ Failed to get user media:', error);
-    throw error;
+    console.error('[WebRTC] ❌ Failed to get user media:', error.name, error.message);
+    
+    // If video was requested but failed, try audio-only as fallback
+    if (video && audio && error.name === 'NotReadableError') {
+      console.log('[WebRTC] 🔁 Camera in use or unavailable, trying audio-only fallback...');
+      try {
+        const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+        localStream = audioOnlyStream;
+        console.log('[WebRTC] ✅ Got audio-only stream as fallback');
+        return audioOnlyStream;
+      } catch (audioError) {
+        console.error('[WebRTC] ❌ Audio fallback also failed:', audioError);
+        throw new Error(`Microphone access failed: ${audioError.message}`);
+      }
+    }
+    
+    // Provide user-friendly error messages
+    if (error.name === 'NotAllowedError') {
+      throw new Error('Camera/microphone permission denied. Please allow access in your browser.');
+    } else if (error.name === 'NotFoundError') {
+      throw new Error('No camera or microphone found. Please connect a device.');
+    } else if (error.name === 'NotReadableError') {
+      throw new Error('Camera or microphone is already in use by another application. Please close other apps using the camera/mic.');
+    } else if (error.name === 'OverconstrainedError') {
+      throw new Error('Camera or microphone does not meet the requirements.');
+    } else {
+      throw new Error(`Media access error: ${error.message}`);
+    }
   }
 };
 
@@ -77,7 +111,9 @@ export const setVideoEnabled = (enabled) => {
 };
 
 export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, onError, stream = null, onStream = null) => {
+  console.log(`[WebRTC] ===== CREATING PEER =====`);
   console.log(`[WebRTC] Creating ${initiator ? 'initiator' : 'responder'} peer: ${localAddr} ↔ ${remoteAddr}`);
+  console.log(`[WebRTC] Has stream:`, !!stream, 'Has onStream:', !!onStream);
 
   // Destroy old only if not connected
   if (currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState !== 'connected') {
@@ -97,15 +133,23 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
     console.log('[WebRTC] Adding local stream to peer');
   }
 
+  console.log('[WebRTC] Creating Peer with config:', peerConfig);
   currentPeer = new Peer(peerConfig);
+  console.log('[WebRTC] ✅ Peer object created, initiator:', initiator);
 
   currentPeer._pc.addEventListener('iceconnectionstatechange', () => {
     const state = currentPeer._pc.iceConnectionState;
-    console.log(`[WebRTC] ICE State: ${state}`);
+    console.log(`[WebRTC] 🧊 ICE State: ${state}`);
     if (state === 'connected') {
       console.log('[WebRTC] ✅ WebRTC peer connection established!');
     }
-    if (state === 'failed') onError(new Error('ICE failed'));
+    if (state === 'completed') {
+      console.log('[WebRTC] ✅ ICE gathering completed!');
+    }
+    if (state === 'failed') {
+      console.error('[WebRTC] ❌ ICE connection failed');
+      if (onError) onError(new Error('ICE failed'));
+    }
   });
 
   currentPeer.on('signal', (data) => {
@@ -116,7 +160,8 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   });
 
   currentPeer.on('connect', () => {
-    console.log('[WebRTC] Channel connected!');
+    console.log('[WebRTC] ✅✅✅ DATA CHANNEL CONNECTED! ✅✅✅');
+    console.log('[WebRTC] onConnect callback will be called');
     if (onConnect) onConnect();
   });
 
@@ -134,7 +179,23 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
 
   currentPeer.on('stream', (stream) => {
     console.log('[WebRTC] ✅ Remote stream received!');
-    if (onStream) onStream(stream);
+    console.log('[WebRTC] Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.enabled}`));
+    if (onStream) {
+      console.log('[WebRTC] Calling onStream callback');
+      onStream(stream);
+    } else {
+      console.warn('[WebRTC] ⚠️ No onStream callback provided!');
+    }
+  });
+
+  // Also listen for track events (fired when tracks are added after connection)
+  currentPeer.on('track', (track, stream) => {
+    console.log('[WebRTC] 🎵 Track received:', track.kind);
+    console.log('[WebRTC] Track stream:', stream);
+    if (onStream) {
+      console.log('[WebRTC] Calling onStream callback from track event');
+      onStream(stream);
+    }
   });
 
   currentPeer.on('error', (err) => {
@@ -146,13 +207,28 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
     console.log('[WebRTC] Close');
   });
 
-  // Timeout
-  setTimeout(() => {
-    if (currentPeer && currentPeer._pc && currentPeer._pc.iceConnectionState !== 'connected') {
-      onError(new Error('Timeout'));
-      currentPeer.destroy();
+  // Extended timeout - only destroy if completely failed
+  const timeoutHandle = setTimeout(() => {
+    if (currentPeer && currentPeer._pc) {
+      const state = currentPeer._pc.iceConnectionState;
+      console.log(`[WebRTC] Timeout check - ICE state: ${state}`);
+      
+      // Only destroy if failed or disconnected, not if still connecting
+      if (state === 'failed' || state === 'closed') {
+        console.warn('[WebRTC] Connection timeout - destroying peer');
+        if (onError) onError(new Error('Connection failed'));
+        currentPeer.destroy();
+      } else if (state === 'new' || state === 'checking') {
+        console.warn('[WebRTC] Still connecting after timeout, giving more time...');
+        // Don't destroy, let it keep trying
+      }
     }
-  }, 90000);
+  }, 120000); // Extended to 120 seconds
+
+  // Store timeout handle so it can be cleared
+  if (currentPeer) {
+    currentPeer._timeoutHandle = timeoutHandle;
+  }
 
   return currentPeer;
 };
@@ -162,8 +238,31 @@ const WS_SERVER = process.env.REACT_APP_WS_SERVER || 'ws://localhost:8000';
 
 const sendSignal = async (data, from, to) => {
   try {
-    const endpoint = data.type === 'offer' ? '/offer' : data.type === 'answer' ? '/answer' : '/ice-candidate';
-    const body = data.type === 'candidate' ? { from_peer: from, to_peer: to, candidate: data } : { from_peer: from, to_peer: to, signal: data };
+    // Normalize addresses to lowercase for backend consistency
+    from = from.toLowerCase();
+    to = to.toLowerCase();
+    
+    // Handle different signal types
+    let endpoint;
+    let body;
+    
+    if (data.type === 'offer') {
+      endpoint = '/offer';
+      body = { from_peer: from, to_peer: to, signal: data };
+    } else if (data.type === 'answer') {
+      endpoint = '/answer';
+      body = { from_peer: from, to_peer: to, signal: data };
+    } else if (data.type === 'candidate' || data.candidate) {
+      endpoint = '/ice-candidate';
+      body = { from_peer: from, to_peer: to, candidate: data };
+    } else if (data.type === 'renegotiate') {
+      // Renegotiate is an internal signal - just log it, don't send to server
+      console.log('[WebRTC] 🔄 Renegotiate signal (internal, not sending to server)');
+      return;
+    } else {
+      console.warn('[WebRTC] ⚠️ Unknown signal type:', data.type, '- ignoring');
+      return;
+    }
 
     console.log(`[WebRTC] Sending ${data.type || 'candidate'} to ${to} via ${SIGNALING_SERVER}${endpoint}`);
     console.log('[WebRTC] Request body:', JSON.stringify(body, null, 2));
@@ -184,7 +283,7 @@ const sendSignal = async (data, from, to) => {
     console.log(`[WebRTC] ✅ Signal sent successfully: ${data.type || 'candidate'}`, responseData);
   } catch (err) {
     console.error('[WebRTC] Send error:', err);
-    // You might want to add retry logic here
+    // Don't throw - allow connection to continue
   }
 };
 
@@ -192,6 +291,12 @@ export const setupSignaling = (localAddr, onSignal, remoteAddr) => {
   console.log('[WebRTC] ===== SETUP SIGNALING =====');
   console.log('[WebRTC] Local address:', localAddr);
   console.log('[WebRTC] Remote address:', remoteAddr);
+  
+  // Normalize addresses to lowercase
+  localAddr = localAddr.toLowerCase();
+  if (remoteAddr) {
+    remoteAddr = remoteAddr.toLowerCase();
+  }
   
   cleanup(false);  // Non-force
 
@@ -247,11 +352,19 @@ export const setupSignaling = (localAddr, onSignal, remoteAddr) => {
 
   ws.onclose = () => {
     console.warn('[WebRTC] ⚠️ WebSocket closed');
-    if (pollInterval) clearInterval(pollInterval);
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
   };
 
   ws.onerror = (error) => {
     console.error('[WebRTC] ❌ WebSocket error:', error);
+    // Don't destroy - let polling continue as fallback
+    // Mark ws as errored so we don't try to use it
+    if (ws) {
+      ws._hasError = true;
+    }
   };
 };
 
@@ -268,6 +381,10 @@ export const cleanup = (force = false) => {
   console.log('[WebRTC] Cleanup (force:', force, ')');
   if (currentPeer) {
     try {
+      // Clear timeout if exists
+      if (currentPeer._timeoutHandle) {
+        clearTimeout(currentPeer._timeoutHandle);
+      }
       currentPeer.destroy();
     } catch (e) {
       console.warn('[WebRTC] Error destroying peer:', e);
@@ -283,7 +400,9 @@ export const cleanup = (force = false) => {
       console.warn('[WebRTC] Error closing WebSocket:', e);
     }
   }
-  if (pollInterval) clearInterval(pollInterval);
+  if (pollInterval) {
+    clearInterval(pollInterval);
+  }
   stopUserMedia();
   currentPeer = null;
   ws = null;

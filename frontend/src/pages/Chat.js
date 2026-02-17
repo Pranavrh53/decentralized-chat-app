@@ -132,6 +132,8 @@ function Chat({ walletAddress }) {
   const [isInitiator, setIsInitiator] = useState(false);
   const peerRef = useRef(null);
   const handleIncomingMessageRef = useRef(null);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
   
   // File transfer state
   const [selectedFile, setSelectedFile] = useState(null);
@@ -139,6 +141,9 @@ function Chat({ walletAddress }) {
   const [downloading, setDownloading] = useState(false);
   const fileReceiverRef = useRef(null);
   const fileInputRef = useRef(null);
+  
+  // Add polling for messages when P2P connection fails
+  const pollingIntervalRef = useRef(null);
 
   // Update receiver when friendAddress from URL changes
   useEffect(() => {
@@ -391,6 +396,50 @@ function Chat({ walletAddress }) {
       localStorage.setItem(chatKey, JSON.stringify(messages));
     }
   }, [messages, account, receiver]);
+
+  // Polling mechanism: When P2P connection fails, poll blockchain for new messages
+  useEffect(() => {
+    // Clear any existing polling
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    // If not connected and we have account & receiver, start polling
+    if (!connected && account && receiver && !loading) {
+      console.log('📡 Starting blockchain polling (P2P not connected)');
+      
+      // Poll every 5 seconds
+      pollingIntervalRef.current = setInterval(() => {
+        console.log('🔄 Polling blockchain for new messages...');
+        loadMessages();
+      }, 5000);
+    }
+
+    // Cleanup
+    return () => {
+      if (pollingIntervalRef.current) {
+        console.log('📡 Stopping blockchain polling');
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [connected, account, receiver, loading, loadMessages]);
+
+  // Auto-retry connection mechanism
+  useEffect(() => {
+    if (!connected && account && receiver && connectionAttempts < 3 && !isRetrying) {
+      const timer = setTimeout(() => {
+        console.log(`🔄 Connection attempt ${connectionAttempts + 1}/3`);
+        setIsRetrying(true);
+        setConnectionAttempts(prev => prev + 1);
+        startChat();
+        setTimeout(() => setIsRetrying(false), 2000);
+      }, 3000 * (connectionAttempts + 1)); // Exponential backoff
+      
+      return () => clearTimeout(timer);
+    }
+  }, [connected, account, receiver, connectionAttempts, isRetrying]);
 
   // Handle incoming WebRTC messages
   const handleIncomingMessage = useCallback(async (data) => {
@@ -706,19 +755,7 @@ function Chat({ walletAddress }) {
       return;
     }
 
-    if (!connected || !peerRef.current) {
-      setError('Not connected to peer');
-      return;
-    }
-
     try {
-      // Check data channel state
-      const dataChannel = peerRef.current._channel;
-      if (!dataChannel || dataChannel.readyState !== 'open') {
-        console.warn('[Chat] Data channel not ready, state:', dataChannel?.readyState);
-        throw new Error('Connection not ready. Please wait...');
-      }
-
       // STEP 1: Upload message to IPFS first
       console.log('[Chat] 📤 Uploading message to IPFS...');
       const ipfsHash = await uploadToIPFS(message, {
@@ -734,24 +771,32 @@ function Chat({ walletAddress }) {
       await storeMessageMetadata(account, receiver, hash, ipfsHash);
       console.log('[Chat] ✅ Blockchain transaction approved!');
 
-      // STEP 3: Send the message via WebRTC for real-time delivery
-      const messageObj = {
-        text: message,
-        timestamp: new Date().toISOString(),
-        sender: account,
-        type: 'text',
-        ipfsHash: ipfsHash
-      };
+      // STEP 3: Send the message via WebRTC for real-time delivery (if connected)
+      if (connected && peerRef.current) {
+        const dataChannel = peerRef.current._channel;
+        if (dataChannel && dataChannel.readyState === 'open') {
+          const messageObj = {
+            text: message,
+            timestamp: new Date().toISOString(),
+            sender: account,
+            type: 'text',
+            ipfsHash: ipfsHash
+          };
 
-      const messageString = JSON.stringify(messageObj);
-      console.log('[Chat] 📨 Sending message via WebRTC:', messageString);
-      
-      try {
-        peerRef.current.send(messageString);
-        console.log('[Chat] ✅ Message sent successfully');
-      } catch (sendError) {
-        console.error('[Chat] Error sending message:', sendError);
-        throw new Error('Failed to send message: ' + sendError.message);
+          const messageString = JSON.stringify(messageObj);
+          console.log('[Chat] 📨 Sending message via WebRTC:', messageString);
+          
+          try {
+            peerRef.current.send(messageString);
+            console.log('[Chat] ✅ Message sent via P2P');
+          } catch (sendError) {
+            console.warn('[Chat] WebRTC send failed, message saved to blockchain:', sendError);
+          }
+        } else {
+          console.log('[Chat] ⚠️ WebRTC channel not ready, message saved to blockchain');
+        }
+      } else {
+        console.log('[Chat] ⚠️ Not connected via P2P, message saved to blockchain only');
       }
 
       // Create message object for UI
@@ -771,6 +816,14 @@ function Chat({ walletAddress }) {
       console.log('[Chat] Adding message to UI:', newMessage);
       setMessages(prev => [...prev, newMessage]);
       setMessage(''); // Clear input
+      
+      // If not connected, trigger a reload after a delay to show the message appeared
+      if (!connected) {
+        setTimeout(() => {
+          console.log('[Chat] Reloading to verify message on blockchain...');
+          loadMessages();
+        }, 2000);
+      }
     } catch (err) {
       console.error('[Chat] Send error:', err);
       setError('Failed to send message: ' + (err.message || 'Unknown error'));
@@ -796,7 +849,7 @@ function Chat({ walletAddress }) {
 
   // Handle enter key press
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !loading && connected) {
+    if (e.key === 'Enter' && !e.shiftKey && !loading) {
       e.preventDefault();
       handleSendMessage();
     }
@@ -958,15 +1011,28 @@ function Chat({ walletAddress }) {
               sx={{ 
                 mb: 2, 
                 p: 1.5, 
-                backgroundColor: 'rgba(138, 102, 255, 0.2)',
+                backgroundColor: 'rgba(255, 152, 0, 0.2)',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center'
               }}
             >
-              <Typography variant="body1" color="primary" fontWeight="bold">
-                ⏳ Connecting...
+              <Typography variant="body1" color="warning.main" fontWeight="bold">
+                ⏳ {isRetrying ? `Retrying connection (${connectionAttempts}/3)...` : 'Connecting to peer...'}
               </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                {connectionAttempts >= 3 
+                  ? '⚠️ P2P connection failed. Using blockchain sync instead (messages update every 5s)'
+                  : 'Messages will sync via blockchain if P2P connection fails'}
+              </Typography>
+              {connectionAttempts >= 3 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="caption" color="info.main">
+                    💡 Brave browser users: Enable WebRTC in Settings → Shields → Advanced Controls
+                  </Typography>
+                </Box>
+              )}
             </Paper>
           ) : (
             <Paper 
@@ -980,7 +1046,7 @@ function Chat({ walletAddress }) {
               }}
             >
               <Typography variant="body1" color="success.dark" fontWeight="bold">
-                ✓ Connected - Ready to chat!
+                ✓ Connected - Real-time P2P chat active!
               </Typography>
             </Paper>
           )}
@@ -1028,14 +1094,14 @@ function Chat({ walletAddress }) {
               multiline
               maxRows={4}
               variant="outlined"
-              placeholder="Type your message..."
+              placeholder={connected ? "Type your message..." : "Type your message (will sync via blockchain)..."}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              disabled={!receiver.trim() || !connected || loading}
+              disabled={!receiver.trim() || loading}
               size="small"
             />
-            <Tooltip title="Attach file">
+            <Tooltip title={connected ? "Attach file (P2P only)" : "File transfer requires P2P connection"}>
               <span>
                 <IconButton
                   color="primary"
@@ -1047,15 +1113,19 @@ function Chat({ walletAddress }) {
                 </IconButton>
               </span>
             </Tooltip>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSendMessage}
-              disabled={!message.trim() || !connected || loading}
-              sx={{ minWidth: 100, height: 40, alignSelf: 'flex-end' }}
-            >
-              {loading ? <CircularProgress size={24} /> : <SendIcon />}
-            </Button>
+            <Tooltip title={connected ? "Send via P2P + Blockchain" : "Send via Blockchain (slower but reliable)"}>
+              <span>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleSendMessage}
+                  disabled={!message.trim() || loading}
+                  sx={{ minWidth: 100, height: 40, alignSelf: 'flex-end' }}
+                >
+                  {loading ? <CircularProgress size={24} /> : <SendIcon />}
+                </Button>
+              </span>
+            </Tooltip>
           </Box>
         </Paper>
 
@@ -1183,11 +1253,16 @@ function Chat({ walletAddress }) {
               borderRadius: 1
             }}>
               <Typography variant="body1" gutterBottom>
-                No messages yet
+                📭 No messages yet. Start the conversation!
               </Typography>
-              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                All messages are stored on the blockchain (metadata only)
+              <Typography variant="caption" color="textSecondary" gutterBottom display="block">
+                Messages are stored on blockchain + IPFS
               </Typography>
+              {!connected && connectionAttempts >= 3 && (
+                <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 1 }}>
+                  ⚠️ Using blockchain sync mode (P2P connection unavailable)
+                </Typography>
+              )}
             </Box>
           )}
         </Paper>

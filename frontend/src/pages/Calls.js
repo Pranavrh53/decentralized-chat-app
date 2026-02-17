@@ -38,6 +38,9 @@ import {
   AccountCircle
 } from '@mui/icons-material';
 
+// Cache buster - increment version to force reload
+console.log('[Calls.js] 🔥 LOADED - Version 8.0 - FIXED REMOTE VIDEO 🔥');
+
 const Calls = ({ walletAddress, onLogout }) => {
   const username = localStorage.getItem('username') || 'Anonymous';
   const [friends, setFriends] = useState([]);
@@ -54,7 +57,6 @@ const Calls = ({ walletAddress, onLogout }) => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
   const [isInitiator, setIsInitiator] = useState(false);
-  const [pendingCallType, setPendingCallType] = useState(null);
 
   // Refs
   const peerRef = useRef(null);
@@ -62,6 +64,22 @@ const Calls = ({ walletAddress, onLogout }) => {
   const remoteVideoRef = useRef(null);
   const handleIncomingMessageRef = useRef(null);
   const friendsRef = useRef([]);
+  const pendingCallTypeRef = useRef(null);
+  const selectedFriendRef = useRef(null);
+  const incomingCallRef = useRef(null);
+
+  // Keep refs in sync with state (for cases where state is set directly)
+  useEffect(() => {
+    if (selectedFriend !== selectedFriendRef.current) {
+      selectedFriendRef.current = selectedFriend;
+    }
+  }, [selectedFriend]);
+
+  useEffect(() => {
+    if (incomingCall !== incomingCallRef.current) {
+      incomingCallRef.current = incomingCall;
+    }
+  }, [incomingCall]);
 
   // Initialize contract
   useEffect(() => {
@@ -152,9 +170,22 @@ const Calls = ({ walletAddress, onLogout }) => {
 
   // Handle remote stream
   const onStream = useCallback((stream) => {
-    console.log('[Calls] Received remote stream');
+    console.log('[Calls] 📹 Received remote stream');
+    console.log('[Calls] Stream ID:', stream.id);
+    console.log('[Calls] Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.label} (enabled: ${t.enabled})`));
+    
     if (remoteVideoRef.current) {
+      console.log('[Calls] Setting remote video srcObject');
       remoteVideoRef.current.srcObject = stream;
+      
+      // Ensure video starts playing
+      remoteVideoRef.current.play().then(() => {
+        console.log('[Calls] ✅ Remote video started playing');
+      }).catch(err => {
+        console.error('[Calls] Error playing remote video:', err);
+      });
+    } else {
+      console.error('[Calls] ❌ remoteVideoRef.current is null!');
     }
   }, []);
 
@@ -190,18 +221,27 @@ const Calls = ({ walletAddress, onLogout }) => {
         if (callingFriend) {
           console.log('[Calls] ✅ Found friend:', callingFriend.name);
           console.log('[Calls] 🎯 Setting selectedFriend to:', callingFriend.name);
+          
+          // Update refs BEFORE setting state to prevent cleanup from destroying peer
+          selectedFriendRef.current = callingFriend;
+          const incomingCallData = {
+            from: messageData.from,
+            callType: messageData.callType
+          };
+          incomingCallRef.current = incomingCallData;
+          
+          console.log('[Calls] 📦 Updated refs - selectedFriend:', selectedFriendRef.current.name, 'incomingCall:', !!incomingCallRef.current);
+          
+          // Now update state (this will trigger effects and cleanups)
           setSelectedFriend(callingFriend);
           setIsInitiator(false); // We are the responder
+          setIncomingCall(incomingCallData);
+          
+          console.log('[Calls] ✅ State updated, peer should be preserved');
         } else {
           console.warn('[Calls] ⚠️ Friend not found for address:', messageData.from);
           console.log('[Calls] Available friends:', friendsRef.current.map(f => ({ name: f.name, addr: f.address })));
         }
-        
-        console.log('[Calls] 🔔 Setting incoming call notification');
-        setIncomingCall({
-          from: messageData.from,
-          callType: messageData.callType
-        });
         return;
       }
 
@@ -234,67 +274,74 @@ const Calls = ({ walletAddress, onLogout }) => {
   // Auto-responder setup
   useEffect(() => {
     if (selectedFriend && !isInitiator) {
-      console.log('[Calls] Setting up auto-responder');
+      console.log('[Calls] 🔁 Auto-responder effect for:', selectedFriend.name);
+      console.log('[Calls] Current peer state - exists:', !!peerRef.current, 'destroyed:', peerRef.current?.destroyed);
       
+      // DON'T destroy peer if it already exists and is working - global listener created it
       if (peerRef.current && !peerRef.current.destroyed) {
-        peerRef.current.destroy();
-        peerRef.current = null;
+        const iceState = peerRef.current._pc?.iceConnectionState;
+        const dataChannelState = peerRef.current._channel?.readyState;
+        console.log('[Calls] Peer already exists - ICE:', iceState, 'DataChannel:', dataChannelState);
+        
+        // Peer is working - keep it and just ensure we're connected
+        if (iceState === 'connected' || iceState === 'completed' || dataChannelState === 'open') {
+          console.log('[Calls] ✅ Peer is working, keeping it for incoming call!');
+          setConnected(true);
+          // Don't return - we still need to setup responder signaling for ICE candidates
+        } else if (iceState === 'failed' || iceState === 'closed') {
+          console.log('[Calls] ⚠️ Peer connection dead, will recreate');
+          peerRef.current.destroy();
+          peerRef.current = null;
+        } else {
+          // Peer is still connecting
+          console.log('[Calls] ⏳ Peer still connecting, keeping it');
+          return; // Let it finish connecting
+        }
       }
       
-      const onData = (data) => {
-        if (handleIncomingMessageRef.current) {
-          handleIncomingMessageRef.current(data);
-        }
-      };
-      
-      const onConnect = () => {
-        console.log('[Calls] Responder connected!');
-        setConnected(true);
+      // Only setup new peer if we don't have one
+      if (!peerRef.current) {
+        console.log('[Calls] 🔧 Setting up new responder peer');
         
-        // If there's a pending call, initiate it now that connection is ready
-        if (pendingCallType) {
-          console.log('[Calls] Initiating pending call:', pendingCallType);
-          setTimeout(() => {
-            initiateCall(pendingCallType);
-            setPendingCallType(null);
-          }, 500); // Small delay to ensure data channel is fully ready
-        }
-      };
-      
-      const onError = (err) => {
-        console.error('[Calls] Responder error:', err);
-        setError(err.message);
-        setConnected(false);
-      };
-      
-      setGlobalCallbacks(onData, onConnect, onError);
+        const onData = (data) => {
+          if (handleIncomingMessageRef.current) {
+            handleIncomingMessageRef.current(data);
+          }
+        };
+        
+        const onConnect = () => {
+          console.log('[Calls] ✅ Responder connected!');
+          setConnected(true);
+          
+          // If there's a pending call, initiate it now that connection is ready
+          const pendingType = pendingCallTypeRef.current;
+          if (pendingType) {
+            console.log('[Calls] 📡 Responder has pending call:', pendingType);
+            setTimeout(() => {
+              console.log('[Calls] 🎬 Responder initiating pending call:', pendingType);
+              initiateCall(pendingType);
+              pendingCallTypeRef.current = null;
+            }, 1500);
+          } else {
+            console.log('[Calls] ✅ Responder ready to receive calls');
+          }
+        };
+        
+        const onError = (err) => {
+          console.error('[Calls] Responder error:', err);
+          // Only set error state for user-visible errors
+          if (err.message !== 'Timeout' && err.message !== 'Connection failed') {
+            setError(err.message);
+          }
+          setConnected(false);
+        };
+        
+        setGlobalCallbacks(onData, onConnect, onError);
 
-      const handleSignal = (signal) => {
-        if (signal.type === 'answer') return;
-        
-        if (!peerRef.current) {
-          if (signal.type === 'offer') {
-            peerRef.current = createPeer(false, walletAddress, selectedFriend.address, onData, onConnect, onError, null, onStream);
-            try {
-              peerRef.current.signal(signal);
-            } catch (err) {
-              console.error('[Calls] Error signaling offer:', err);
-            }
-          }
-          return;
-        }
-        
-        if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
-          const iceState = peerRef.current._pc.iceConnectionState;
+        const handleSignal = (signal) => {
+          if (signal.type === 'answer') return;
           
-          if (signal.type === 'offer' && iceState === 'connected') {
-            return;
-          }
-          
-          if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed') {
-            peerRef.current.destroy();
-            peerRef.current = null;
-            
+          if (!peerRef.current) {
             if (signal.type === 'offer') {
               peerRef.current = createPeer(false, walletAddress, selectedFriend.address, onData, onConnect, onError, null, onStream);
               try {
@@ -306,22 +353,48 @@ const Calls = ({ walletAddress, onLogout }) => {
             return;
           }
           
-          try {
-            peerRef.current.signal(signal);
-          } catch (err) {
-            console.error('[Calls] Error signaling peer:', err);
+          if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
+            const iceState = peerRef.current._pc.iceConnectionState;
+            
+            if (signal.type === 'offer' && iceState === 'connected') {
+              return;
+            }
+            
+            if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed') {
+              peerRef.current.destroy();
+              peerRef.current = null;
+              
+              if (signal.type === 'offer') {
+                peerRef.current = createPeer(false, walletAddress, selectedFriend.address, onData, onConnect, onError, null, onStream);
+                try {
+                  peerRef.current.signal(signal);
+                } catch (err) {
+                  console.error('[Calls] Error signaling offer:', err);
+                }
+              }
+              return;
+            }
+            
+            try {
+              peerRef.current.signal(signal);
+            } catch (err) {
+              console.error('[Calls] Error signaling peer:', err);
+            }
           }
-        }
-      };
+        };
 
-      setupSignaling(walletAddress, handleSignal, selectedFriend.address);
+        setupSignaling(walletAddress, handleSignal, selectedFriend.address);
+      }
       
       return () => {
-        console.log('[Calls] Auto-responder cleanup');
-        cleanup(false);
+        console.log('[Calls] 🧹 Auto-responder cleanup, isInitiator:', isInitiator, 'inCall:', inCall);
+        // Don't cleanup if we're in a call or about to accept one
+        if (!isInitiator && !inCall) {
+          cleanup(false); // Non-force cleanup - won't destroy if connected
+        }
       };
     }
-  }, [selectedFriend, walletAddress, isInitiator, onStream]);
+  }, [selectedFriend, walletAddress, onStream, inCall]); // Added inCall to dependencies
 
   // Global listener for incoming calls when viewing friends list (no friend selected)
   useEffect(() => {
@@ -342,7 +415,9 @@ const Calls = ({ walletAddress, onLogout }) => {
       };
       
       const onError = (err) => {
-        console.error('[Calls] ❌ Global listener error:', err);
+        console.warn('[Calls] ⚠️ Global listener connection issue:', err.message);
+        // Don't set error state for global listener - it's just standing by
+        // Only log it for debugging
       };
       
       setGlobalCallbacks(onData, onConnect, onError);
@@ -350,10 +425,17 @@ const Calls = ({ walletAddress, onLogout }) => {
       // Listen for incoming offers from any friend
       const handleGlobalSignal = (signal) => {
         console.log('[Calls] 📡 Global signal received:', signal.type);
+        
         // Handle offers to establish peer connection for signaling
         if (signal.type === 'offer') {
           const fromAddress = signal.from;
           console.log('[Calls] 📞 Received offer from:', fromAddress);
+          
+          // Check if we already have a peer - don't recreate if it exists and is not destroyed
+          if (peerRef.current && !peerRef.current.destroyed) {
+            console.log('[Calls] ⚠️ Peer already exists, ignoring duplicate offer');
+            return;
+          }
           
           if (fromAddress) {
             // Find which friend is calling
@@ -363,17 +445,12 @@ const Calls = ({ walletAddress, onLogout }) => {
             
             if (callingFriend) {
               console.log('[Calls] ✅ Found calling friend:', callingFriend.name);
-              // Note: Don't auto-select friend in UI yet - that happens when call-request arrives
-              // Only create peer connection for signaling
-              
-              // Set up peer connection for this specific friend (but don't show in UI)
-              if (!peerRef.current || peerRef.current.destroyed) {
-                console.log('[Calls] 🔗 Creating peer connection for signaling');
-                peerRef.current = createPeer(false, walletAddress, callingFriend.address, onData, onConnect, onError, null, onStream);
-              }
+              console.log('[Calls] 🔗 Creating NEW peer connection for signaling');
+              peerRef.current = createPeer(false, walletAddress, callingFriend.address, onData, onConnect, onError, null, onStream);
               
               try {
                 peerRef.current.signal(signal);
+                console.log('[Calls] ✅ Signaled offer to new peer');
               } catch (err) {
                 console.error('[Calls] ❌ Error signaling global offer:', err);
               }
@@ -387,29 +464,66 @@ const Calls = ({ walletAddress, onLogout }) => {
       setupSignaling(walletAddress, handleGlobalSignal, '');
       
       return () => {
-        console.log('[Calls] 🧹 Global listener cleanup - closing WebSocket');
-        // Only cleanup if we're not transitioning to a call
-        // The startConnection function will handle its own cleanup
-        if (!selectedFriend) {
-          cleanup(true);
+        console.log('[Calls] 🧹 Global listener cleanup');
+        // Use refs to get current values (not closure values)
+        const currentSelectedFriend = selectedFriendRef.current;
+        const currentIncomingCall = incomingCallRef.current;
+        const currentPeer = peerRef.current;
+        
+        console.log('[Calls] -- selectedFriend:', currentSelectedFriend?.name || 'none');
+        console.log('[Calls] -- incomingCall:', currentIncomingCall ? 'yes' : 'no');
+        console.log('[Calls] -- peer exists:', !!currentPeer, 'destroyed:', currentPeer?.destroyed);
+        
+        // DON'T cleanup if:
+        // 1. We have a selected friend (transitioning to call)
+        // 2. We have an incoming call notification
+        // 3. Peer is connected and working
+        if (currentSelectedFriend || currentIncomingCall) {
+          console.log('[Calls] ✅ Active call state detected, preserving peer connection');
+          return;
         }
+        
+        if (currentPeer && !currentPeer.destroyed) {
+          const iceState = currentPeer._pc?.iceConnectionState;
+          const dataChannelState = currentPeer._channel?.readyState;
+          
+          if (iceState === 'connected' || iceState === 'completed' || dataChannelState === 'open') {
+            console.log('[Calls] ✅ Peer is connected, preserving it');
+            return;
+          }
+        }
+        
+        console.log('[Calls] 🚮 No active call, performing cleanup');
+        cleanup(true);
       };
     }
-  }, [selectedFriend, walletAddress]);
+  }, [walletAddress]); // Removed selectedFriend and incomingCall from dependencies
 
   // Start connection as initiator
   const startConnection = (friend) => {
     console.log('[Calls] 🎬 Starting connection as initiator with:', friend.name);
     
-    // Cleanup global listener first before setting selected friend
-    cleanup(true);
+    // Update refs first
+    selectedFriendRef.current = friend;
     
-    // Small delay to ensure cleanup completes
+    // Set state
+    setSelectedFriend(friend);
+    setIsInitiator(true);
+    setError(null);
+    setConnected(false);
+    
+    // Cleanup and setup with delay
     setTimeout(() => {
-      setSelectedFriend(friend);
-      setIsInitiator(true);
-      setError(null);
-      setConnected(false);
+      console.log('[Calls] Performing cleanup and setup...');
+      console.log('[Calls] Current peer before cleanup - exists:', !!peerRef.current, 'destroyed:', peerRef.current?.destroyed);
+      
+      // Only cleanup if peer is not already connected
+      if (!peerRef.current || peerRef.current.destroyed || peerRef.current._pc?.iceConnectionState !== 'connected') {
+        console.log('[Calls] Cleaning up old peer...');
+        cleanup(true);
+      } else {
+        console.log('[Calls] Peer already connected, reusing it');
+      }
 
       const onData = (data) => {
         if (handleIncomingMessageRef.current) {
@@ -418,90 +532,152 @@ const Calls = ({ walletAddress, onLogout }) => {
       };
       
       const onConnect = () => {
-        console.log('[Calls] Initiator connected!');
+        console.log('[Calls] ✅ Initiator connected!');
         setConnected(true);
         
         // If there's a pending call, initiate it now that connection is ready
-        if (pendingCallType) {
-          console.log('[Calls] Initiating pending call:', pendingCallType);
+        const pendingType = pendingCallTypeRef.current;
+        if (pendingType) {
+          console.log('[Calls] 📡 Pending call detected:', pendingType);
+          // Give a bit more time for data channel to fully stabilize
           setTimeout(() => {
-            initiateCall(pendingCallType);
-            setPendingCallType(null);
-          }, 500); // Small delay to ensure data channel is fully ready
+            console.log('[Calls] 🎬 Now initiating pending call:', pendingType);
+            initiateCall(pendingType);
+            pendingCallTypeRef.current = null;
+          }, 1500); // Increased to 1.5 seconds for stability
+        } else {
+          console.log('[Calls] ⚠️ Connected but no pending call');
         }
       };
       
       const onError = (err) => {
         console.error('[Calls] Initiator error:', err);
-        setError(err.message);
+        // Only set error state for user-visible errors
+        if (err.message !== 'Timeout' && err.message !== 'Connection failed') {
+          setError(err.message);
+        }
         setConnected(false);
       };
       
       setGlobalCallbacks(onData, onConnect, onError);
 
       const handleSignal = (signal) => {
-        if (signal.type === 'offer') return;
+        console.log('[Calls] Initiator handleSignal received:', signal.type);
         
-        if (peerRef.current && !peerRef.current.destroyed && peerRef.current._pc) {
-          const signalingState = peerRef.current._pc.signalingState;
-          const iceState = peerRef.current._pc.iceConnectionState;
-          
-          if (signal.type === 'answer' && (signalingState === 'stable' || iceState === 'connected')) {
-            return;
-          }
-          
-          try {
-            peerRef.current.signal(signal);
-          } catch (err) {
-            console.error('[Calls] Error signaling peer:', err);
-          }
+        if (signal.type === 'offer') {
+          console.log('[Calls] Initiator ignoring offer (we sent it)');
+          return;
+        }
+        
+        if (!peerRef.current || peerRef.current.destroyed) {
+          console.warn('[Calls] ⚠️ No peer to signal to');
+          return;
+        }
+        
+        if (!peerRef.current._pc) {
+          console.warn('[Calls] ⚠️ Peer has no peer connection');
+          return;
+        }
+        
+        const signalingState = peerRef.current._pc.signalingState;
+        const iceState = peerRef.current._pc.iceConnectionState;
+        
+        console.log('[Calls] Peer states - signaling:', signalingState, 'ice:', iceState);
+        
+        // Don't process answer if already in stable state
+        if (signal.type === 'answer' && signalingState === 'stable') {
+          console.log('[Calls] Ignoring answer - already stable');
+          return;
+        }
+        
+        // Don't process answer if already connected
+        if (signal.type === 'answer' && iceState === 'connected') {
+          console.log('[Calls] Ignoring answer - already connected');
+          return;
+        }
+        
+        try {
+          console.log('[Calls] ✅ Signaling', signal.type, 'to peer');
+          peerRef.current.signal(signal);
+        } catch (err) {
+          console.error('[Calls] Error signaling peer:', err);
         }
       };
 
-      setupSignaling(walletAddress, handleSignal, friend.address);
-      peerRef.current = createPeer(true, walletAddress, friend.address, onData, onConnect, onError, null, onStream);
-    }, 100); // 100ms delay to ensure cleanup completes
+      
+      // Small delay before creating connections
+      setTimeout(() => {
+        console.log('[Calls] Creating peer and signaling...');
+        setupSignaling(walletAddress, handleSignal, friend.address);
+        peerRef.current = createPeer(true, walletAddress, friend.address, onData, onConnect, onError, null, onStream);
+      }, 200);
+    }, 100);
   };
 
   // Call functions
   const handleStartCall = async (friend, type) => {
+    console.log('[Calls] 📞 handleStartCall called:', friend.name, type);
+    console.log('[Calls] Current state - connected:', connected, 'peerRef exists:', !!peerRef.current);
+    
     setSelectedFriend(friend);
+    pendingCallTypeRef.current = type; // Store in ref to avoid stale closures
+    console.log('[Calls] 💾 Stored pending call type in ref:', pendingCallTypeRef.current);
     
     // If not connected, establish connection first
     if (!connected || !peerRef.current) {
-      setPendingCallType(type); // Store the call type to initiate after connection
+      console.log('[Calls] Not connected, starting connection...');
       startConnection(friend);
       return;
     }
     
+    // Already connected, initiate call immediately
+    console.log('[Calls] Already connected, initiating call...');
     initiateCall(type);
+    pendingCallTypeRef.current = null;
   };
 
   const initiateCall = async (type) => {
+    console.log('[Calls] 📡 initiateCall called with type:', type);
+    
     if (!peerRef.current) {
+      console.error('[Calls] ❌ No peer reference!');
       setError('Connection not established. Please try again.');
       return;
     }
 
+    console.log('[Calls] Peer exists, destroyed?', peerRef.current.destroyed);
+
     // Check if data channel is ready
     const dataChannel = peerRef.current._channel;
-    if (!dataChannel || dataChannel.readyState !== 'open') {
-      console.log('[Calls] Data channel not ready, waiting...');
-      setError('Connection not ready yet. Please wait a moment and try again.');
+    console.log('[Calls] Data channel state:', dataChannel?.readyState);
+    
+    if (!dataChannel) {
+      console.warn('[Calls] ⚠️ Data channel does not exist yet, retrying in 1s...');
+      setTimeout(() => initiateCall(type), 1000);
+      return;
+    }
+    
+    if (dataChannel.readyState !== 'open') {
+      console.warn('[Calls] ⚠️ Data channel not open (state:', dataChannel.readyState, '), retrying in 1s...');
+      // Retry after delay
+      setTimeout(() => initiateCall(type), 1000);
       return;
     }
 
     try {
+      console.log('[Calls] 🎤 Getting user media...');
       setLoading(true);
       const video = type === 'video';
       const audio = true;
 
       // Get user media
       const stream = await getUserMedia(video, audio);
+      console.log('[Calls] ✅ Got user media stream');
       
       // Display local video
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        console.log('[Calls] ✅ Set local video stream');
       }
 
       // Send call request
@@ -510,18 +686,29 @@ const Calls = ({ walletAddress, onLogout }) => {
         callType: type,
         from: walletAddress
       };
-      peerRef.current.send(JSON.stringify(callRequest));
+      
+      console.log('[Calls] 📤 Sending call-request:', callRequest);
+      try {
+        peerRef.current.send(JSON.stringify(callRequest));
+        console.log('[Calls] ✅ Call request sent successfully');
+      } catch (err) {
+        console.error('[Calls] ❌ Error sending call-request:', err);
+        throw new Error('Failed to send call request');
+      }
 
       // Add stream to peer
+      console.log('[Calls] 🔊 Adding tracks to peer...');
       stream.getTracks().forEach(track => {
         peerRef.current.addTrack(track, stream);
+        console.log('[Calls] ✅ Added track:', track.kind);
       });
 
       setInCall(true);
       setCallType(type);
       setLoading(false);
+      console.log('[Calls] 🎉 Call initiated successfully!');
     } catch (error) {
-      console.error('[Calls] Error starting call:', error);
+      console.error('[Calls] ❌ Error starting call:', error);
       setError(`Failed to start ${type} call: ${error.message}`);
       setLoading(false);
     }
@@ -530,31 +717,67 @@ const Calls = ({ walletAddress, onLogout }) => {
   const handleAcceptCall = async () => {
     if (!incomingCall) return;
 
+    console.log('[Calls] 📞 Accepting call...');
+    console.log('[Calls] Peer exists?', !!peerRef.current, 'Destroyed?', peerRef.current?.destroyed);
+    
+    // Check if peer exists and is not destroyed
+    if (!peerRef.current || peerRef.current.destroyed) {
+      console.error('[Calls] ❌ Peer is destroyed, cannot accept call');
+      setError('Connection lost. Please ask the caller to try again.');
+      incomingCallRef.current = null;
+      setIncomingCall(null);
+      return;
+    }
+
     try {
       setLoading(true);
       const video = incomingCall.callType === 'video';
       const audio = true;
 
+      console.log('[Calls] 🎤 Getting user media for accept...');
       const stream = await getUserMedia(video, audio);
+      console.log('[Calls] ✅ Got media stream');
       
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
 
+      // Check again before adding tracks (async operation above might have taken time)
+      if (!peerRef.current || peerRef.current.destroyed) {
+        console.error('[Calls] ❌ Peer destroyed while getting media');
+        stopUserMedia();
+        setError('Connection lost. Please ask the caller to try again.');
+        incomingCallRef.current = null;
+        setIncomingCall(null);
+        setLoading(false);
+        return;
+      }
+
+      console.log('[Calls] 🔊 Adding tracks to peer...');
       stream.getTracks().forEach(track => {
         peerRef.current.addTrack(track, stream);
+        console.log('[Calls] ✅ Added track:', track.kind);
       });
 
       const callAccepted = {
         type: 'call-accepted',
         callType: incomingCall.callType
       };
-      peerRef.current.send(JSON.stringify(callAccepted));
+      
+      try {
+        peerRef.current.send(JSON.stringify(callAccepted));
+        console.log('[Calls] ✅ Sent call-accepted');
+      } catch (err) {
+        console.error('[Calls] Error sending call-accepted:', err);
+        // Continue anyway - peer might receive stream
+      }
 
       setInCall(true);
       setCallType(incomingCall.callType);
+      incomingCallRef.current = null;
       setIncomingCall(null);
       setLoading(false);
+      console.log('[Calls] 🎉 Call accepted successfully!');
     } catch (error) {
       console.error('[Calls] Error accepting call:', error);
       setError(`Failed to accept call: ${error.message}`);
@@ -563,10 +786,22 @@ const Calls = ({ walletAddress, onLogout }) => {
   };
 
   const handleRejectCall = () => {
-    if (!incomingCall || !peerRef.current) return;
+    if (!incomingCall) return;
 
-    const callRejected = { type: 'call-rejected' };
-    peerRef.current.send(JSON.stringify(callRejected));
+    if (peerRef.current && !peerRef.current.destroyed) {
+      try {
+        const dataChannel = peerRef.current._channel;
+        if (dataChannel && dataChannel.readyState === 'open') {
+          const callRejected = { type: 'call-rejected' };
+          peerRef.current.send(JSON.stringify(callRejected));
+        }
+      } catch (err) {
+        console.warn('[Calls] Error sending call-rejected:', err);
+      }
+    }
+    
+    // Update ref before state
+    incomingCallRef.current = null;
     setIncomingCall(null);
   };
 
@@ -574,15 +809,22 @@ const Calls = ({ walletAddress, onLogout }) => {
     stopUserMedia();
     
     if (peerRef.current && !peerRef.current.destroyed) {
-      const callEnded = { type: 'call-ended' };
-      peerRef.current.send(JSON.stringify(callEnded));
+      try {
+        const dataChannel = peerRef.current._channel;
+        if (dataChannel && dataChannel.readyState === 'open') {
+          const callEnded = { type: 'call-ended' };
+          peerRef.current.send(JSON.stringify(callEnded));
+        }
+      } catch (err) {
+        console.warn('[Calls] Error sending call-ended:', err);
+      }
     }
 
     setInCall(false);
     setCallType(null);
     setIsMuted(false);
     setIsVideoOff(false);
-    setPendingCallType(null);
+    pendingCallTypeRef.current = null;
     
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = null;
@@ -606,9 +848,14 @@ const Calls = ({ walletAddress, onLogout }) => {
 
   const handleBackToList = () => {
     handleEndCall();
+    
+    // Update refs before state
+    selectedFriendRef.current = null;
+    incomingCallRef.current = null;
+    
     setSelectedFriend(null);
     setConnected(false);
-    setPendingCallType(null);
+    pendingCallTypeRef.current = null;
     cleanup(true);
   };
 
@@ -828,6 +1075,7 @@ const Calls = ({ walletAddress, onLogout }) => {
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
+                muted={false}
                 style={{
                   width: '100%',
                   height: '500px',

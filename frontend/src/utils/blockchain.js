@@ -290,7 +290,8 @@ export const getMessageMetadata = async (messageId, maxRetries = 3) => {
         sender: message.sender,
         receiver: message.receiver,
         messageHash: message.messageHash,
-        timestamp: Number(message.timestamp) * 1000, // Convert to milliseconds
+        timestamp: Number(message.timestamp), // Already in seconds, will convert later
+        ipfsHash: message.ipfsHash || '',
         // No transaction hash in the contract, so we'll use a placeholder
         transactionHash: '0x0'
       };

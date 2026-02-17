@@ -50,12 +50,16 @@ class ConnectionManager:
         logger.info(f"Client {client_id} connected. Total connections: {len(self.active_connections)}")
 
     async def disconnect(self, client_id: str):
+        # Normalize address to lowercase
+        client_id = client_id.lower()
         async with self.lock:
             if client_id in self.active_connections:
                 del self.active_connections[client_id]
         logger.info(f"Client {client_id} disconnected. Remaining connections: {len(self.active_connections)}")
 
     async def send_personal_message(self, message: str, client_id: str):
+        # Normalize address to lowercase
+        client_id = client_id.lower()
         if client_id in self.active_connections:
             try:
                 await self.active_connections[client_id].send_text(message)
@@ -102,6 +106,8 @@ class IceCandidate(BaseModel):
 
 # Helper function to get or create peer data
 def get_peer_data(peer_id: str) -> PeerData:
+    # Normalize address to lowercase for case-insensitive matching
+    peer_id = peer_id.lower()
     if peer_id not in peers:
         peers[peer_id] = PeerData()
     return peers[peer_id]
@@ -159,6 +165,8 @@ async def handle_ice_candidate(candidate: IceCandidate):
 # WebSocket endpoint for real-time signaling
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    # Normalize address to lowercase
+    client_id = client_id.lower()
     await manager.connect(websocket, client_id)
     try:
         while True:
@@ -191,6 +199,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 # Check for offers/answers/candidates (fallback for non-WebSocket clients)
 @app.get("/check/{peer_id}")
 async def check_signals(peer_id: str):
+    # Normalize address to lowercase
+    peer_id = peer_id.lower()
     if peer_id not in peers:
         return {"type": "no_peer"}
         
@@ -212,9 +222,19 @@ async def check_signals(peer_id: str):
     }
     
     # Clear the data after sending to avoid reprocessing
-    # Keep offer for initial connection, but clear answer and candidates
+    # Clear offer ONLY ONCE - after first retrieval to prevent loops
+    if peer_data.offer:
+        logger.info(f"Clearing offer for {peer_id} after delivery")
+        peer_data.offer = None
+        peer_data.offer_from = None
+    
+    # Clear answer and candidates after sending
     if peer_data.answer:
+        logger.info(f"Clearing answer for {peer_id} after delivery")
         peer_data.answer = None
+    
+    if len(peer_data.candidates) > 0:
+        logger.info(f"Clearing {len(peer_data.candidates)} candidates for {peer_id}")
     peer_data.candidates.clear()
     
     return response
