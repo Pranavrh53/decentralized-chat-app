@@ -5,6 +5,7 @@ let currentPeer = null;
 let ws = null;
 let pollInterval = null;
 let lastSignalHash = '';
+let localStream = null;
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -20,7 +21,62 @@ const ICE_SERVERS = [
   }
 ];
 
-export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, onError) => {
+/**
+ * Get user media (video/audio)
+ * @param {boolean} video - Enable video
+ * @param {boolean} audio - Enable audio
+ * @returns {Promise<MediaStream>}
+ */
+export const getUserMedia = async (video = true, audio = true) => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video, audio });
+    localStream = stream;
+    console.log('[WebRTC] ✅ Got user media:', { video, audio });
+    return stream;
+  } catch (error) {
+    console.error('[WebRTC] ❌ Failed to get user media:', error);
+    throw error;
+  }
+};
+
+/**
+ * Stop local media stream
+ */
+export const stopUserMedia = () => {
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+    console.log('[WebRTC] Stopped user media');
+  }
+};
+
+/**
+ * Toggle audio mute
+ * @param {boolean} muted
+ */
+export const setAudioMuted = (muted) => {
+  if (localStream) {
+    localStream.getAudioTracks().forEach(track => {
+      track.enabled = !muted;
+    });
+    console.log(`[WebRTC] Audio ${muted ? 'muted' : 'unmuted'}`);
+  }
+};
+
+/**
+ * Toggle video enabled
+ * @param {boolean} enabled
+ */
+export const setVideoEnabled = (enabled) => {
+  if (localStream) {
+    localStream.getVideoTracks().forEach(track => {
+      track.enabled = enabled;
+    });
+    console.log(`[WebRTC] Video ${enabled ? 'enabled' : 'disabled'}`);
+  }
+};
+
+export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, onError, stream = null, onStream = null) => {
   console.log(`[WebRTC] Creating ${initiator ? 'initiator' : 'responder'} peer: ${localAddr} ↔ ${remoteAddr}`);
 
   // Destroy old only if not connected
@@ -29,11 +85,19 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
     currentPeer.destroy();
   }
 
-  currentPeer = new Peer({
+  const peerConfig = {
     initiator,
     trickle: true,
     config: { iceServers: ICE_SERVERS }
-  });
+  };
+
+  // Add stream if provided (for video/audio calls)
+  if (stream) {
+    peerConfig.stream = stream;
+    console.log('[WebRTC] Adding local stream to peer');
+  }
+
+  currentPeer = new Peer(peerConfig);
 
   currentPeer._pc.addEventListener('iceconnectionstatechange', () => {
     const state = currentPeer._pc.iceConnectionState;
@@ -57,8 +121,20 @@ export const createPeer = (initiator, localAddr, remoteAddr, onData, onConnect, 
   });
 
   currentPeer.on('data', (data) => {
-    console.log('[WebRTC] Data received:', data);
-    if (onData) onData(data.toString());
+    const dataStr = data.toString();
+    console.log('[WebRTC] 📨 Data received (raw):', dataStr);
+    try {
+      const parsed = JSON.parse(dataStr);
+      console.log('[WebRTC] 📦 Parsed data type:', parsed.type);
+    } catch (e) {
+      console.log('[WebRTC] Not JSON data');
+    }
+    if (onData) onData(dataStr);
+  });
+
+  currentPeer.on('stream', (stream) => {
+    console.log('[WebRTC] ✅ Remote stream received!');
+    if (onStream) onStream(stream);
   });
 
   currentPeer.on('error', (err) => {
@@ -190,9 +266,25 @@ export const cleanup = (force = false) => {
     return;
   }
   console.log('[WebRTC] Cleanup (force:', force, ')');
-  if (currentPeer) currentPeer.destroy();
-  if (ws) ws.close();
+  if (currentPeer) {
+    try {
+      currentPeer.destroy();
+    } catch (e) {
+      console.warn('[WebRTC] Error destroying peer:', e);
+    }
+  }
+  if (ws) {
+    try {
+      // Only close if WebSocket is OPEN or CONNECTING
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    } catch (e) {
+      console.warn('[WebRTC] Error closing WebSocket:', e);
+    }
+  }
   if (pollInterval) clearInterval(pollInterval);
+  stopUserMedia();
   currentPeer = null;
   ws = null;
   pollInterval = null;

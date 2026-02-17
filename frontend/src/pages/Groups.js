@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { initWeb3, getWeb3 } from '../utils/blockchain';
+import { initWeb3, getWeb3, getDynamicGasPrice } from '../utils/blockchain';
 import ChatMetadataABI from '../abis/ChatMetadata.json';
 import {
   Box,
@@ -102,7 +102,10 @@ const Groups = ({ walletAddress, onLogout }) => {
       console.log(`✅ Loaded ${groupsData.length} groups`);
       
       // Also load from localStorage (for offline/imported groups)
-      const localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]');
+      let localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]');
+      if (localGroups.length === 0) {
+        localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress}`) || '[]');
+      }
       if (localGroups.length > 0) {
         // Merge with blockchain groups
         const mergedGroups = [...groupsData];
@@ -119,7 +122,10 @@ const Groups = ({ walletAddress, onLogout }) => {
       setError('Failed to load groups');
       
       // Fallback to localStorage
-      const localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]');
+      let localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]');
+      if (localGroups.length === 0) {
+        localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress}`) || '[]');
+      }
       setGroups(localGroups);
     } finally {
       setLoading(false);
@@ -145,7 +151,11 @@ const Groups = ({ walletAddress, onLogout }) => {
       
       // Load from localStorage (imported friends)
       const normalizedAddress = walletAddress.toLowerCase();
-      const localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      // Try both normalized and original case keys for backward compatibility
+      let localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      if (localFriends.length === 0) {
+        localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      }
       
       // Merge friends
       const mergedFriendsMap = new Map();
@@ -157,7 +167,10 @@ const Groups = ({ walletAddress, onLogout }) => {
       console.error('Error loading friends:', error);
       // Fallback to localStorage
       const normalizedAddress = walletAddress.toLowerCase();
-      const localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      let localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      if (localFriends.length === 0) {
+        localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      }
       setFriends(localFriends);
     }
   };
@@ -179,10 +192,12 @@ const Groups = ({ walletAddress, onLogout }) => {
     try {
       console.log('Creating group...');
       
+      const gasPrice = await getDynamicGasPrice(1.3);
+      
       // Create group on blockchain
       const tx = await contract.methods
         .createGroup(newGroupName.trim(), newGroupDescription.trim(), selectedMembers)
-        .send({ from: walletAddress });
+        .send({ from: walletAddress, gasPrice });
 
       console.log('Group created:', tx);
       

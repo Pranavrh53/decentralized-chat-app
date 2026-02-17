@@ -29,6 +29,7 @@ app.add_middleware(
 # In-memory storage for signaling
 class PeerData(BaseModel):
     offer: Optional[Dict] = None
+    offer_from: Optional[str] = None  # Track who sent the offer
     answer: Optional[Dict] = None
     candidates: List[Dict] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=datetime.utcnow)
@@ -115,9 +116,10 @@ async def root():
 async def handle_offer(signal: SignalData):
     logger.info(f"Received offer from {signal.from_peer} to {signal.to_peer}")
     
-    # Store the offer
+    # Store the offer with sender info
     peer_data = get_peer_data(signal.to_peer)
     peer_data.offer = signal.signal
+    peer_data.offer_from = signal.from_peer  # Store who sent it
     peer_data.last_updated = datetime.utcnow()
     
     # Try to send via WebSocket if available
@@ -193,9 +195,16 @@ async def check_signals(peer_id: str):
         return {"type": "no_peer"}
         
     peer_data = peers[peer_id]
+    
+    # Add 'from' field to offer if it exists
+    offer_with_from = None
+    if peer_data.offer:
+        offer_with_from = peer_data.offer.copy()
+        offer_with_from['from'] = peer_data.offer_from
+    
     response = {
         "type": "check",
-        "offer": peer_data.offer,
+        "offer": offer_with_from,
         "answer": peer_data.answer,
         "has_candidates": len(peer_data.candidates) > 0,
         "candidates": peer_data.candidates.copy(),

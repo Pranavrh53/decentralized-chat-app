@@ -17,6 +17,33 @@ let contract;
 let isInitialized = false;
 
 /**
+ * Get dynamic gas price with multiplier to ensure transactions go through
+ * @param {number} multiplier - Multiplier for gas price (default 1.2 = 20% higher)
+ * @returns {Promise<string>} - Gas price in wei
+ */
+export const getDynamicGasPrice = async (multiplier = 1.2) => {
+  try {
+    if (!web3) {
+      throw new Error('Web3 not initialized');
+    }
+    
+    // Get current network gas price
+    const gasPrice = await web3.eth.getGasPrice();
+    
+    // Apply multiplier to ensure transaction goes through
+    const adjustedGasPrice = Math.floor(Number(gasPrice) * multiplier).toString();
+    
+    console.log(`⛽ Gas price: ${web3.utils.fromWei(gasPrice.toString(), 'gwei')} gwei → ${web3.utils.fromWei(adjustedGasPrice, 'gwei')} gwei (${multiplier}x)`);
+    
+    return adjustedGasPrice;
+  } catch (error) {
+    console.error('Error getting gas price:', error);
+    // Fallback to 10 gwei if there's an error
+    return web3.utils.toWei('10', 'gwei');
+  }
+};
+
+/**
  * Initialize web3, connect wallet, and create contract instance
  */
 export const initWeb3 = async () => {
@@ -186,13 +213,16 @@ export const storeMessageMetadata = async (sender, receiver, messageHash, ipfsHa
       from
     });
 
+    // Get dynamic gas price
+    const gasPrice = await getDynamicGasPrice(1.3); // 30% higher than network average
+
     // Store the message hash and IPFS hash on the blockchain
     const tx = await contract.methods
       .storeMetadata(receiver, messageHash, ipfsHash)
       .send({ 
         from, 
-        gas: 500000, // Increased gas limit
-        gasPrice: web3.utils.toWei('2', 'gwei') // Explicit gas price
+        gas: 500000,
+        gasPrice: gasPrice
       });
 
     console.log('Transaction successful:', tx.transactionHash);

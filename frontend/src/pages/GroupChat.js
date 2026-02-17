@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { initWeb3, getWeb3, hashMessage } from '../utils/blockchain';
+import { initWeb3, getWeb3, hashMessage, getDynamicGasPrice } from '../utils/blockchain';
 import { uploadToIPFS, retrieveFromIPFS, uploadFileToIPFS, getIPFSFileUrl, isImageFile, isFileSizeAcceptable } from '../utils/ipfs';
 import ChatMetadataABI from '../abis/ChatMetadata.json';
 import {
@@ -227,9 +227,10 @@ function GroupChat({ walletAddress }) {
 
       // Store file metadata on blockchain
       const hash = await hashMessage(fileData.ipfsHash);
+      const gasPrice = await getDynamicGasPrice(1.3);
       await contract.methods
         .sendGroupMessage(groupId, hash, fileData.ipfsHash)
-        .send({ from: walletAddress });
+        .send({ from: walletAddress, gasPrice });
 
       setUploadProgress(75);
 
@@ -286,9 +287,10 @@ function GroupChat({ walletAddress }) {
 
       // Store on blockchain
       const hash = await hashMessage(message);
+      const gasPrice = await getDynamicGasPrice(1.3);
       await contract.methods
         .sendGroupMessage(groupId, hash, ipfsHash)
-        .send({ from: walletAddress });
+        .send({ from: walletAddress, gasPrice });
 
       // Add to local state immediately
       const newMessage = {
@@ -323,7 +325,8 @@ function GroupChat({ walletAddress }) {
     }
 
     try {
-      await contract.methods.leaveGroup(groupId).send({ from: walletAddress });
+      const gasPrice = await getDynamicGasPrice(1.3);
+      await contract.methods.leaveGroup(groupId).send({ from: walletAddress, gasPrice });
       navigate('/groups');
     } catch (error) {
       console.error('Error leaving group:', error);
@@ -337,7 +340,10 @@ function GroupChat({ walletAddress }) {
     }
     // Try to find name from friends list
     const normalizedAddress = walletAddress.toLowerCase();
-    const friends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+    let friends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+    if (friends.length === 0) {
+      friends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+    }
     const friend = friends.find(f => f.address.toLowerCase() === address.toLowerCase());
     return friend ? friend.name : `${address.substring(0, 8)}...`;
   };

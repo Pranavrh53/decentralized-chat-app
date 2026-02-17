@@ -5,7 +5,12 @@ import {
   getMessageMetadata,
   hashMessage 
 } from "../utils/blockchain";
-import { createPeer, setupSignaling, cleanup, setGlobalCallbacks } from "../utils/webrtc";
+import { 
+  createPeer, 
+  setupSignaling, 
+  cleanup, 
+  setGlobalCallbacks
+} from "../utils/webrtc";
 import { uploadFileToIPFS, getIPFSFileUrl, isImageFile, isFileSizeAcceptable } from "../utils/ipfs";
 
 const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
@@ -18,6 +23,7 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  
   const peerRef = useRef(null);
   const handleIncomingMessageRef = useRef(null);
   const messagesEndRef = useRef(null);

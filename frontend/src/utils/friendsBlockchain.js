@@ -1,5 +1,5 @@
 // Friend management blockchain functions
-import { getWeb3 } from './blockchain';
+import { getWeb3, getDynamicGasPrice } from './blockchain';
 
 let contract;
 
@@ -26,9 +26,11 @@ export const addFriendOnChain = async (friendAddress, name) => {
 
     console.log(`📝 Adding friend ${name} (${friendAddress}) on blockchain...`);
 
+    const gasPrice = await getDynamicGasPrice(1.3);
+
     const tx = await contract.methods
       .addFriend(friendAddress, name)
-      .send({ from: account });
+      .send({ from: account, gasPrice });
 
     console.log(`✅ Friend added on blockchain! Transaction hash: ${tx.transactionHash}`);
     return tx;
@@ -56,9 +58,11 @@ export const removeFriendOnChain = async (friendAddress) => {
 
     console.log(`🗑️ Removing friend (${friendAddress}) from blockchain...`);
 
+    const gasPrice = await getDynamicGasPrice(1.3);
+
     const tx = await contract.methods
       .removeFriend(friendAddress)
-      .send({ from: account });
+      .send({ from: account, gasPrice });
 
     console.log(`✅ Friend removed from blockchain! Transaction hash: ${tx.transactionHash}`);
     return tx;

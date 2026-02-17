@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { initWeb3, getWeb3 } from '../utils/blockchain';
+import { initWeb3, getWeb3, getDynamicGasPrice } from '../utils/blockchain';
 import ChatMetadataABI from '../abis/ChatMetadata.json';
 import { 
   exportChatHistory, 
@@ -45,7 +45,9 @@ import {
   Upload as UploadIcon,
   Lock as LockIcon,
   Visibility,
-  VisibilityOff
+  VisibilityOff,
+  Link as LinkIcon,
+  Storage as StorageIcon
 } from '@mui/icons-material';
 
 const Friends = ({ walletAddress, onLogout }) => {
@@ -134,6 +136,7 @@ const Friends = ({ walletAddress, onLogout }) => {
           
           blockchainFriends = friendsData.filter(f => f.exists);
           console.log(`✅ Loaded ${blockchainFriends.length} friends from blockchain`);
+          console.log('📋 Blockchain friends:', blockchainFriends.map(f => ({ name: f.name, address: f.address })));
         } catch (err) {
           console.error('Error loading from blockchain:', err);
         }
@@ -141,7 +144,11 @@ const Friends = ({ walletAddress, onLogout }) => {
       
       // Load friends from localStorage (imported or cached)
       const normalizedAddress = walletAddress.toLowerCase();
-      const localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      // Try both normalized and original case keys for backward compatibility
+      let localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      if (localFriends.length === 0) {
+        localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      }
       console.log(`📦 Found ${localFriends.length} friends in localStorage`);
       
       // Merge blockchain and localStorage friends (deduplicate by address)
@@ -228,12 +235,62 @@ const Friends = ({ walletAddress, onLogout }) => {
       console.log(`Adding friend ${newFriendName} to blockchain...`);
       const web3 = getWeb3();
       
+      // Check if friend already exists on blockchain
+      try {
+        const existingFriend = await contract.methods.getFriend(walletAddress, newFriendAddress.trim()).call();
+        if (existingFriend.exists) {
+          console.log('⚠️ Friend already exists on blockchain:', existingFriend);
+          setError('This friend already exists on the blockchain. Remove them first before re-adding.');
+          setLoading(false);
+          return;
+        }
+        console.log('✅ Friend check passed - not on blockchain yet');
+      } catch (checkErr) {
+        // Friend doesn't exist or error checking, continue
+        console.log('Friend check:', checkErr.message || 'continuing...');
+      }
+      
+      const gasPrice = await getDynamicGasPrice(1.3);
+      
+      // Estimate gas first to catch reverts early
+      let estimatedGas;
+      try {
+        estimatedGas = await contract.methods
+          .addFriend(newFriendAddress.trim(), newFriendName.trim())
+          .estimateGas({ from: walletAddress });
+        console.log(`Estimated gas: ${estimatedGas}`);
+      } catch (estimateErr) {
+        console.error('Gas estimation failed:', estimateErr);
+        
+        // Parse the revert reason
+        let errorMessage = 'Transaction will fail. ';
+        if (estimateErr.message.includes('Friend already exists')) {
+          errorMessage += 'This friend is already in your list.';
+        } else if (estimateErr.message.includes('Cannot add yourself')) {
+          errorMessage += 'You cannot add yourself as a friend.';
+        } else if (estimateErr.message.includes('Invalid friend address')) {
+          errorMessage += 'Invalid wallet address.';
+        } else if (estimateErr.message.includes('Name cannot be empty')) {
+          errorMessage += 'Friend name cannot be empty.';
+        } else {
+          errorMessage += estimateErr.message;
+        }
+        
+        setError(errorMessage);
+        setLoading(false);
+        return;
+      }
+      
+      // Convert estimatedGas to number and add 20% buffer
+      const gasLimit = Math.floor(Number(estimatedGas) * 1.2);
+      console.log(`Using gas limit: ${gasLimit}`);
+      
       const tx = await contract.methods
         .addFriend(newFriendAddress.trim(), newFriendName.trim())
         .send({ 
           from: walletAddress,
-          gas: 150000, // Reasonable gas limit
-          gasPrice: web3.utils.toWei('2', 'gwei')
+          gas: gasLimit,
+          gasPrice: gasPrice
         });
 
       console.log('✅ Friend added! Transaction:', tx.transactionHash);
@@ -245,8 +302,10 @@ const Friends = ({ walletAddress, onLogout }) => {
         addedAt: new Date().toISOString()
       };
       
-      const localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      const normalizedAddress = walletAddress.toLowerCase();
+      const localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
       localFriends.push(newFriend);
+      localStorage.setItem(`friends_${normalizedAddress}`, JSON.stringify(localFriends));
       localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(localFriends));
 
       // Reload friends from blockchain
@@ -259,49 +318,90 @@ const Friends = ({ walletAddress, onLogout }) => {
       setError('');
     } catch (error) {
       console.error('Error adding friend:', error);
-      setError(`Failed to add friend: ${error.message}`);
+      
+      // Better error messages
+      let errorMessage = 'Failed to add friend: ';
+      if (error.message.includes('User denied')) {
+        errorMessage = 'Transaction cancelled by user.';
+      } else if (error.message.includes('insufficient funds')) {
+        errorMessage = 'Insufficient funds for gas fees. Please add test ETH to your wallet.';
+      } else if (error.message.includes('Friend already exists')) {
+        errorMessage = 'This friend is already in your list on the blockchain.';
+      } else if (error.message.includes('reverted')) {
+        errorMessage = 'Transaction failed. The friend might already exist, or there may be a validation issue.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteFriend = async (friendAddress) => {
-    if (!walletAddress || !contract) return;
+  const handleDeleteFriend = async (friend) => {
+    const isBlockchain = friend.source === 'blockchain';
+    const friendAddress = friend.address;
     
-    if (window.confirm('Are you sure you want to remove this friend?')) {
-      setLoading(true);
-      try {
-        console.log(`Removing friend from blockchain...`);
+    // Different confirmation messages based on source
+    const confirmMessage = isBlockchain
+      ? `Remove "${friend.name}" from blockchain? This will require a transaction and gas fees.`
+      : `Remove "${friend.name}" from local storage? This action is instant and free.`;
+    
+    if (!window.confirm(confirmMessage)) return;
+    
+    setLoading(true);
+    try {
+      if (isBlockchain) {
+        // Remove from blockchain (requires transaction)
+        if (!contract) {
+          setError('Contract not initialized');
+          return;
+        }
+        
+        console.log(`🔗 Removing friend from blockchain...`);
         const web3 = getWeb3();
+        const gasPrice = await getDynamicGasPrice(1.3);
         
         const tx = await contract.methods
           .removeFriend(friendAddress)
           .send({ 
             from: walletAddress,
-            gas: 100000, // Limit gas to prevent high fees
-            gasPrice: web3.utils.toWei('2', 'gwei') // Set reasonable gas price
+            gas: 100000,
+            gasPrice: gasPrice
           });
 
-        console.log('✅ Friend removed! Transaction:', tx.transactionHash);
-        
-        // Also remove from localStorage
-        const localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
-        const updatedLocal = localFriends.filter(
-          f => {
-            const addr = typeof f === 'string' ? f : f.address;
-            return addr && addr.toLowerCase() !== friendAddress.toLowerCase();
-          }
-        );
-        localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(updatedLocal));
-        
-        // Reload friends from blockchain
-        await loadFriends();
-      } catch (error) {
-        console.error('Error removing friend:', error);
-        setError(`Failed to remove friend: ${error.message}`);
-      } finally {
-        setLoading(false);
+        console.log('✅ Friend removed from blockchain! Transaction:', tx.transactionHash);
+      } else {
+        // Remove from localStorage only (instant, no transaction)
+        console.log(`💾 Removing friend from localStorage...`);
       }
+      
+      // Always remove from localStorage
+      const normalizedAddress = walletAddress.toLowerCase();
+      let localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      if (localFriends.length === 0) {
+        localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      }
+      
+      const updatedLocal = localFriends.filter(
+        f => {
+          const addr = typeof f === 'string' ? f : f.address;
+          return addr && addr.toLowerCase() !== friendAddress.toLowerCase();
+        }
+      );
+      localStorage.setItem(`friends_${normalizedAddress}`, JSON.stringify(updatedLocal));
+      localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(updatedLocal));
+      
+      console.log('✅ Friend removed successfully!');
+      
+      // Reload friends
+      await loadFriends();
+    } catch (error) {
+      console.error('Error removing friend:', error);
+      setError(`Failed to remove friend: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -586,6 +686,60 @@ const Friends = ({ walletAddress, onLogout }) => {
           </Box>
         </Box>
 
+        {/* Storage Statistics */}
+        {friends.length > 0 && (
+          <Box sx={{ 
+            display: 'flex', 
+            gap: 2, 
+            mb: 3,
+            flexWrap: 'wrap'
+          }}>
+            <Paper sx={{
+              flex: 1,
+              minWidth: '200px',
+              p: 2,
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: '12px'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <LinkIcon sx={{ color: '#10b981', fontSize: 20 }} />
+                <Typography sx={{ color: '#10b981', fontWeight: 600, fontSize: '14px' }}>
+                  On-Chain Friends
+                </Typography>
+              </Box>
+              <Typography sx={{ color: '#ffffff', fontSize: '28px', fontWeight: 700 }}>
+                {friends.filter(f => f.source === 'blockchain').length}
+              </Typography>
+              <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '12px', mt: 0.5 }}>
+                Stored on blockchain • Requires gas to remove
+              </Typography>
+            </Paper>
+            
+            <Paper sx={{
+              flex: 1,
+              minWidth: '200px',
+              p: 2,
+              background: 'linear-gradient(135deg, rgba(255, 140, 66, 0.1) 0%, rgba(255, 140, 66, 0.05) 100%)',
+              border: '1px solid rgba(255, 140, 66, 0.3)',
+              borderRadius: '12px'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <StorageIcon sx={{ color: '#ff8c42', fontSize: 20 }} />
+                <Typography sx={{ color: '#ff8c42', fontWeight: 600, fontSize: '14px' }}>
+                  Local Friends
+                </Typography>
+              </Box>
+              <Typography sx={{ color: '#ffffff', fontSize: '28px', fontWeight: 700 }}>
+                {friends.filter(f => f.source === 'imported').length}
+              </Typography>
+              <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '12px', mt: 0.5 }}>
+                Imported from backup • Free to remove
+              </Typography>
+            </Paper>
+          </Box>
+        )}
+
         <Paper sx={styles.friendsList}>
           {friends.length > 0 ? (
             <List>
@@ -604,11 +758,15 @@ const Friends = ({ walletAddress, onLogout }) => {
                             <ChatIcon />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Remove Friend">
+                        <Tooltip 
+                          title={friend.source === 'blockchain' 
+                            ? 'Remove from blockchain (requires transaction)' 
+                            : 'Remove from local storage (instant, no gas)'}
+                        >
                           <IconButton
                             edge="end"
                             color="error"
-                            onClick={() => handleDeleteFriend(friend.address)}
+                            onClick={() => handleDeleteFriend(friend)}
                           >
                             <DeleteIcon />
                           </IconButton>
@@ -623,9 +781,35 @@ const Friends = ({ walletAddress, onLogout }) => {
                     </ListItemAvatar>
                     <ListItemText
                       primary={
-                        <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                          {friend.name}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
+                            {friend.name}
+                          </Typography>
+                          <Tooltip 
+                            title={friend.source === 'blockchain' 
+                              ? 'Stored on blockchain (decentralized, requires gas to remove)' 
+                              : 'Stored locally (imported, can be removed instantly)'}
+                          >
+                            <Chip
+                              icon={friend.source === 'blockchain' ? <LinkIcon /> : <StorageIcon />}
+                              label={friend.source === 'blockchain' ? 'On-Chain' : 'Local'}
+                              size="small"
+                              sx={{
+                                backgroundColor: friend.source === 'blockchain' 
+                                  ? 'rgba(16, 185, 129, 0.2)' 
+                                  : 'rgba(255, 140, 66, 0.2)',
+                                color: friend.source === 'blockchain' ? '#10b981' : '#ff8c42',
+                                fontWeight: 600,
+                                fontSize: '10px',
+                                height: '20px',
+                                '& .MuiChip-icon': {
+                                  fontSize: '14px',
+                                  color: friend.source === 'blockchain' ? '#10b981' : '#ff8c42'
+                                }
+                              }}
+                            />
+                          </Tooltip>
+                        </Box>
                       }
                       secondary={
                         <Box sx={{ mt: 1 }} component="div">
@@ -696,18 +880,26 @@ const Friends = ({ walletAddress, onLogout }) => {
         </DialogTitle>
         <DialogContent>
           {error && (
-            <Paper
-              sx={{
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 2,
                 backgroundColor: 'rgba(239, 68, 68, 0.2)',
                 color: '#ef4444',
-                p: 2,
-                mb: 2,
-                borderRadius: 1
+                '& .MuiAlert-icon': {
+                  color: '#ef4444'
+                }
               }}
             >
               {error}
-            </Paper>
+            </Alert>
           )}
+          <Alert severity="info" sx={{ mb: 2 }}>
+            💡 <strong>Common Issues:</strong><br/>
+            • Friend already exists - Remove them first<br/>
+            • Insufficient gas - Get test ETH from <a href="https://sepoliafaucet.com" target="_blank" rel="noopener" style={{color: '#8a66ff'}}>Sepolia Faucet</a><br/>
+            • Invalid address - Check the wallet address format
+          </Alert>
           <TextField
             autoFocus
             margin="dense"

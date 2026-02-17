@@ -148,6 +148,17 @@ const Navbar = ({ username, walletAddress, onLogout }) => {
           CHAT
         </Link>
         <Link 
+          to="/calls" 
+          style={{
+            ...styles.navLink,
+            ...(isActive('/calls') ? styles.navLinkActive : {})
+          }}
+          onMouseEnter={(e) => e.target.style.color = '#ff8c42'}
+          onMouseLeave={(e) => !isActive('/calls') && (e.target.style.color = '#b8b8d1')}
+        >
+          CALLS
+        </Link>
+        <Link 
           to="/contact" 
           style={styles.navLink}
           onMouseEnter={(e) => e.target.style.color = '#ff8c42'}
