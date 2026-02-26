@@ -670,7 +670,7 @@ const Calls = ({ walletAddress, onLogout }) => {
       const video = type === 'video';
       const audio = true;
 
-      // Get user media
+      // Get user media FIRST
       const stream = await getUserMedia(video, audio);
       console.log('[Calls] ✅ Got user media stream');
       
@@ -680,7 +680,7 @@ const Calls = ({ walletAddress, onLogout }) => {
         console.log('[Calls] ✅ Set local video stream');
       }
 
-      // Send call request
+      // Send call request via existing data channel
       const callRequest = {
         type: 'call-request',
         callType: type,
@@ -696,12 +696,47 @@ const Calls = ({ walletAddress, onLogout }) => {
         throw new Error('Failed to send call request');
       }
 
-      // Add stream to peer
-      console.log('[Calls] 🔊 Adding tracks to peer...');
-      stream.getTracks().forEach(track => {
-        peerRef.current.addTrack(track, stream);
-        console.log('[Calls] ✅ Added track:', track.kind);
-      });
+      // CLEAN APPROACH: Destroy old peer and create new one with media
+      console.log('[Calls] 🔄 Recreating peer connection with media...');
+      const oldPeer = peerRef.current;
+      
+      // Callbacks for new peer
+      const onData = (data) => {
+        if (handleIncomingMessageRef.current) {
+          handleIncomingMessageRef.current(data);
+        }
+      };
+      
+      const onConnect = () => {
+        console.log('[Calls] ✅ Media peer connected!');
+        setConnected(true);
+      };
+      
+      const onError = (err) => {
+        console.error('[Calls] Media peer error:', err);
+        if (err.message !== 'Timeout' && err.message !== 'Connection failed') {
+          setError(err.message);
+        }
+      };
+
+      // Setup signaling and callbacks
+      setGlobalCallbacks(onData, onConnect, onError);
+      
+      // Create new peer WITH stream as initiator (use ref to get current value)
+      const friendAddress = selectedFriendRef.current?.address;
+      if (!friendAddress) {
+        throw new Error('Friend address not found');
+      }
+      peerRef.current = createPeer(true, walletAddress, friendAddress, onData, onConnect, onError, stream, onStream);
+      console.log('[Calls] ✅ Created new peer with media');
+      
+      // Destroy old peer after a short delay
+      setTimeout(() => {
+        if (oldPeer && !oldPeer.destroyed) {
+          console.log('[Calls] 🗑️ Destroying old data-only peer');
+          oldPeer.destroy();
+        }
+      }, 1000);
 
       setInCall(true);
       setCallType(type);
@@ -742,7 +777,7 @@ const Calls = ({ walletAddress, onLogout }) => {
         localVideoRef.current.srcObject = stream;
       }
 
-      // Check again before adding tracks (async operation above might have taken time)
+      // Check again before proceeding
       if (!peerRef.current || peerRef.current.destroyed) {
         console.error('[Calls] ❌ Peer destroyed while getting media');
         stopUserMedia();
@@ -753,12 +788,7 @@ const Calls = ({ walletAddress, onLogout }) => {
         return;
       }
 
-      console.log('[Calls] 🔊 Adding tracks to peer...');
-      stream.getTracks().forEach(track => {
-        peerRef.current.addTrack(track, stream);
-        console.log('[Calls] ✅ Added track:', track.kind);
-      });
-
+      // Send call-accepted via existing peer
       const callAccepted = {
         type: 'call-accepted',
         callType: incomingCall.callType
@@ -769,8 +799,62 @@ const Calls = ({ walletAddress, onLogout }) => {
         console.log('[Calls] ✅ Sent call-accepted');
       } catch (err) {
         console.error('[Calls] Error sending call-accepted:', err);
-        // Continue anyway - peer might receive stream
       }
+
+      // CLEAN APPROACH: Destroy old peer and create new one with media as responder
+      console.log('[Calls] 🔄 Recreating peer connection with media as responder...');
+      const oldPeer = peerRef.current;
+      
+      const onData = (data) => {
+        if (handleIncomingMessageRef.current) {
+          handleIncomingMessageRef.current(data);
+        }
+      };
+      
+      const onConnect = () => {
+        console.log('[Calls] ✅ Responder media peer connected!');
+        setConnected(true);
+      };
+      
+      const onError = (err) => {
+        console.error('[Calls] Responder peer error:', err);
+        if (err.message !== 'Timeout') {
+          setError(err.message);
+        }
+      };
+
+      // Setup signaling and callbacks  
+      setGlobalCallbacks(onData, onConnect, onError);
+      
+      // Create new peer WITH stream as responder (not initiator) - use ref for current value
+      const friendAddress = selectedFriendRef.current?.address;
+      if (!friendAddress) {
+        throw new Error('Friend address not found');
+      }
+      peerRef.current = createPeer(false, walletAddress, friendAddress, onData, onConnect, onError, stream, onStream);
+      console.log('[Calls] ✅ Created new responder peer with media');
+      
+      // Setup signaling to receive the new offer from initiator
+      const handleSignal = (signal) => {
+        if (peerRef.current && !peerRef.current.destroyed) {
+          try {
+            peerRef.current.signal(signal);
+            console.log('[Calls] ✅ Signaled to responder peer:', signal.type || 'candidate');
+          } catch (err) {
+            console.error('[Calls] Error signaling to responder peer:', err);
+          }
+        }
+      };
+      
+      setupSignaling(walletAddress, handleSignal, friendAddress);
+      
+      // Destroy old peer after a delay
+      setTimeout(() => {
+        if (oldPeer && !oldPeer.destroyed) {
+          console.log('[Calls] 🗑️ Destroying old data-only peer');
+          oldPeer.destroy();
+        }
+      }, 1000);
 
       setInCall(true);
       setCallType(incomingCall.callType);
