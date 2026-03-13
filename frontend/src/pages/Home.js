@@ -27,7 +27,10 @@ const Home = ({ walletAddress, onLogout }) => {
   }, [walletAddress]);
 
   const loadFriends = () => {
-    const friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+    let friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+    if (friendsList.length === 0) {
+      friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress.toLowerCase()}`) || '[]');
+    }
     const allUsersData = JSON.parse(localStorage.getItem('allChatUsers') || '[]');
     const customNames = JSON.parse(localStorage.getItem(`friend_names_${walletAddress}`) || '{}');
     

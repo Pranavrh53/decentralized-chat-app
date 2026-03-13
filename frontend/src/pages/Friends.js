@@ -175,6 +175,21 @@ const Friends = ({ walletAddress, onLogout }) => {
       setFriends(mergedFriends);
       console.log(`✅ Total friends after merge: ${mergedFriends.length}`);
       
+      // IMPORTANT: Sync merged friends back to localStorage so Chat.js and other
+      // pages can find the complete friends list (including blockchain friends)
+      // This fixes the bug where friends appear in the friends list but not in chat
+      // after re-login, because Chat.js reads friends from localStorage.
+      const friendsToStore = mergedFriends.map(f => ({
+        address: f.address,
+        name: f.name,
+        addedAt: f.addedAt || new Date().toISOString(),
+        source: f.source
+      }));
+      localStorage.setItem(`friends_${normalizedAddress}`, JSON.stringify(friendsToStore));
+      // Also store with original case for backward compatibility
+      localStorage.setItem(`friends_${walletAddress}`, JSON.stringify(friendsToStore));
+      console.log(`💾 Synced ${friendsToStore.length} friends to localStorage`);
+      
     } catch (error) {
       console.error('Error loading friends:', error);
       setError('Failed to load friends');

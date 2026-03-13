@@ -154,7 +154,11 @@ function Chat({ walletAddress }) {
       localStorage.setItem('lastChatPartner', addressString);
       
       // Get friend's name from friends list
-      const friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      // Try both original case and lowercase keys for backward compatibility
+      let friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
+      if (friendsList.length === 0) {
+        friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress.toLowerCase()}`) || '[]');
+      }
       const friend = friendsList.find(f => f.address && f.address.toLowerCase() === addressString.toLowerCase());
       if (friend) {
         setFriendName(friend.name);
