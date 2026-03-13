@@ -30,6 +30,7 @@ app.add_middleware(
 class PeerData(BaseModel):
     offer: Optional[Dict] = None
     offer_from: Optional[str] = None  # Track who sent the offer
+    call_type: Optional[str] = None   # 'audio' or 'video'
     answer: Optional[Dict] = None
     candidates: List[Dict] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=datetime.utcnow)
@@ -98,6 +99,7 @@ class SignalData(BaseModel):
     from_peer: str
     to_peer: str
     signal: Dict
+    call_type: Optional[str] = None
 
 class IceCandidate(BaseModel):
     from_peer: str
@@ -120,19 +122,21 @@ async def root():
 # Handle WebRTC offer
 @app.post("/offer")
 async def handle_offer(signal: SignalData):
-    logger.info(f"Received offer from {signal.from_peer} to {signal.to_peer}")
+    logger.info(f"Received offer from {signal.from_peer} to {signal.to_peer} (call_type: {signal.call_type})")
     
     # Store the offer with sender info
     peer_data = get_peer_data(signal.to_peer)
     peer_data.offer = signal.signal
     peer_data.offer_from = signal.from_peer  # Store who sent it
+    peer_data.call_type = signal.call_type or 'video'  # Default to video
     peer_data.last_updated = datetime.utcnow()
     
     # Try to send via WebSocket if available
     message = json.dumps({
         "type": "offer",
         "from": signal.from_peer,
-        "signal": signal.signal
+        "signal": signal.signal,
+        "callType": signal.call_type or 'video'
     })
     await manager.send_personal_message(message, signal.to_peer)
     
@@ -206,11 +210,12 @@ async def check_signals(peer_id: str):
         
     peer_data = peers[peer_id]
     
-    # Add 'from' field to offer if it exists
+    # Add 'from' and 'callType' fields to offer if it exists
     offer_with_from = None
     if peer_data.offer:
         offer_with_from = peer_data.offer.copy()
         offer_with_from['from'] = peer_data.offer_from
+        offer_with_from['callType'] = peer_data.call_type or 'video'
     
     response = {
         "type": "check",
@@ -227,6 +232,7 @@ async def check_signals(peer_id: str):
         logger.info(f"Clearing offer for {peer_id} after delivery")
         peer_data.offer = None
         peer_data.offer_from = None
+        peer_data.call_type = None
     
     # Clear answer and candidates after sending
     if peer_data.answer:

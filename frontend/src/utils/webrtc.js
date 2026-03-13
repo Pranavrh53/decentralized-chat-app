@@ -9,6 +9,7 @@ let ws = null;
 let pollInterval = null;
 let lastSignalHash = '';
 let localStream = null;
+let currentCallType = null; // 'audio' or 'video'
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -108,6 +109,15 @@ export const setVideoEnabled = (enabled) => {
     });
     console.log(`[WebRTC] Video ${enabled ? 'enabled' : 'disabled'}`);
   }
+};
+
+/**
+ * Set the current call type for signaling metadata
+ * @param {string} callType - 'audio' or 'video'
+ */
+export const setCurrentCallType = (callType) => {
+  currentCallType = callType;
+  console.log(`[WebRTC] Call type set to: ${callType}`);
 };
 
 /**
@@ -273,7 +283,7 @@ const sendSignal = async (data, from, to) => {
 
     if (data.type === 'offer') {
       endpoint = '/offer';
-      body = { from_peer: from, to_peer: to, signal: data };
+      body = { from_peer: from, to_peer: to, signal: data, call_type: currentCallType || 'video' };
     } else if (data.type === 'answer') {
       endpoint = '/answer';
       body = { from_peer: from, to_peer: to, signal: data };

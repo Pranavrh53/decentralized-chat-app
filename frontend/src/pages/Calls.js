@@ -11,7 +11,8 @@ import {
   getUserMedia,
   stopUserMedia,
   setAudioMuted,
-  setVideoEnabled
+  setVideoEnabled,
+  setCurrentCallType
 } from '../utils/webrtc';
 import {
   Box,
@@ -63,11 +64,13 @@ const Calls = ({ walletAddress, onLogout }) => {
   const peerRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null); // Dedicated audio element for audio calls
   const handleIncomingMessageRef = useRef(null);
   const friendsRef = useRef([]);
   const pendingCallTypeRef = useRef(null);
   const selectedFriendRef = useRef(null);
   const incomingCallRef = useRef(null);
+  const callTypeRef = useRef(null); // Track call type for onStream callback
   // Store the pending offer so we can signal it AFTER we create the peer with stream
   const pendingOfferRef = useRef(null);
 
@@ -166,35 +169,52 @@ const Calls = ({ walletAddress, onLogout }) => {
     }
   };
 
-  // Handle remote stream — attaches the remote MediaStream to the video element
+  // Handle remote stream — attaches the remote MediaStream to the appropriate element
   const onStream = useCallback((stream) => {
     console.log('[Calls] 📹 Received remote stream');
     console.log('[Calls] Stream ID:', stream.id);
     console.log('[Calls] Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.label} (enabled: ${t.enabled}, readyState: ${t.readyState})`));
+    console.log('[Calls] Current callTypeRef:', callTypeRef.current);
 
-    if (remoteVideoRef.current) {
-      console.log('[Calls] Setting remote video srcObject');
-      // Clear stale reference first — React can hold onto old streams
-      remoteVideoRef.current.srcObject = null;
-      remoteVideoRef.current.srcObject = stream;
+    const hasVideoTrack = stream.getVideoTracks().length > 0;
+    const hasAudioTrack = stream.getAudioTracks().length > 0;
+    const isAudioOnly = callTypeRef.current === 'audio';
 
-      // Force play (may fail due to autoplay policy but autoPlay attribute handles it)
-      remoteVideoRef.current.play().then(() => {
-        console.log('[Calls] ✅ Remote video started playing');
+    console.log('[Calls] hasVideoTrack:', hasVideoTrack, 'hasAudioTrack:', hasAudioTrack, 'isAudioOnly:', isAudioOnly);
+
+    // ALWAYS attach to the audio element first — this ensures audio works
+    // regardless of whether the video element is rendered
+    if (remoteAudioRef.current) {
+      console.log('[Calls] ✅ Setting remote audio srcObject');
+      remoteAudioRef.current.srcObject = null;
+      remoteAudioRef.current.srcObject = stream;
+      remoteAudioRef.current.play().then(() => {
+        console.log('[Calls] ✅ Remote audio started playing');
       }).catch(err => {
-        console.warn('[Calls] Autoplay blocked, user interaction may be needed:', err.message);
+        console.warn('[Calls] Audio autoplay blocked:', err.message);
       });
     } else {
-      console.error('[Calls] ❌ remoteVideoRef.current is null! (call UI may not be rendered yet)');
-      // Retry after a short delay — the call UI might be rendering
-      setTimeout(() => {
+      console.error('[Calls] ❌ remoteAudioRef.current is null!');
+    }
+
+    // For video calls, also attach to the video element
+    if (!isAudioOnly && hasVideoTrack) {
+      const attachToVideo = () => {
         if (remoteVideoRef.current) {
-          console.log('[Calls] ✅ Retry: Setting remote video srcObject');
+          console.log('[Calls] Setting remote video srcObject');
           remoteVideoRef.current.srcObject = null;
           remoteVideoRef.current.srcObject = stream;
-          remoteVideoRef.current.play().catch(() => { });
+          remoteVideoRef.current.play().then(() => {
+            console.log('[Calls] ✅ Remote video started playing');
+          }).catch(err => {
+            console.warn('[Calls] Video autoplay blocked:', err.message);
+          });
+        } else {
+          console.warn('[Calls] remoteVideoRef not ready, retrying...');
+          setTimeout(attachToVideo, 500);
         }
-      }, 500);
+      };
+      attachToVideo();
     }
   }, []);
 
@@ -393,25 +413,30 @@ const Calls = ({ walletAddress, onLogout }) => {
   // ─────────────────────────────────────────────────────────────────
   // INITIATOR: Start connection — get media FIRST, create peer WITH stream
   // ─────────────────────────────────────────────────────────────────
-  const startConnection = async (friend, callType) => {
-    console.log('[Calls] 🎬 Starting connection as initiator with:', friend.name, 'type:', callType);
+  const startConnection = async (friend, type) => {
+    console.log('[Calls] 🎬 Starting connection as initiator with:', friend.name, 'type:', type);
 
     selectedFriendRef.current = friend;
+    callTypeRef.current = type; // Track call type before stream arrives
+    setCurrentCallType(type); // Set in webrtc module for signaling
     setSelectedFriend(friend);
     setIsInitiator(true);
+    setCallType(type);
+    setInCall(true); // Set inCall early so UI elements are rendered
     setError(null);
     setConnected(false);
 
     try {
       // STEP 1: Get local media BEFORE creating peer
-      const video = callType === 'video';
+      const video = type === 'video';
       console.log('[Calls] 🎤 Getting user media (video:', video, ')');
       setLoading(true);
       const stream = await getUserMedia(video, true);
       console.log('[Calls] ✅ Got local media stream');
+      console.log('[Calls] Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.label} (enabled: ${t.enabled})`));
 
-      // STEP 2: Attach local stream to local video element
-      if (localVideoRef.current) {
+      // STEP 2: Attach local stream to local video element (only for video calls)
+      if (type === 'video' && localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         localVideoRef.current.muted = true;
         try { await localVideoRef.current.play(); } catch (e) { /* autoplay handles it */ }
@@ -468,7 +493,6 @@ const Calls = ({ walletAddress, onLogout }) => {
       };
 
       // STEP 4: Setup signaling and create peer WITH stream — NO delay
-      // The offer must be generated immediately so signaling can relay it
       console.log('[Calls] Creating initiator peer WITH local stream...');
       setupSignaling(walletAddress, handleSignal, friend.address);
       peerRef.current = createPeer(
@@ -479,14 +503,16 @@ const Calls = ({ walletAddress, onLogout }) => {
         onConnect,
         onError,
         stream,           // ✅ Stream is in the initial SDP
-        onStream,         // callback for remote stream
-        callType          // ✅ Pass callType to inject into offer
+        onStream          // callback for remote stream
       );
 
     } catch (err) {
       console.error('[Calls] ❌ Failed to get media:', err);
       setError(`Failed to access camera/microphone: ${err.message}`);
       setLoading(false);
+      setInCall(false);
+      setCallType(null);
+      callTypeRef.current = null;
     }
   };
 
@@ -513,8 +539,6 @@ const Calls = ({ walletAddress, onLogout }) => {
       peerRef.current.send(JSON.stringify(callRequest));
       console.log('[Calls] ✅ Call request sent:', type);
 
-      setInCall(true);
-      setCallType(type);
       setLoading(false);
     } catch (err) {
       console.error('[Calls] ❌ Error sending call request:', err);
@@ -552,14 +576,21 @@ const Calls = ({ walletAddress, onLogout }) => {
     try {
       setLoading(true);
 
+      // Set call type BEFORE getting media so onStream knows the type
+      callTypeRef.current = callTypeToAccept;
+      setCurrentCallType(callTypeToAccept); // Set in webrtc module for signaling
+      setCallType(callTypeToAccept);
+      setInCall(true); // Set inCall early so UI elements are rendered
+
       // STEP 1: Get local media FIRST
       const video = callTypeToAccept === 'video';
       console.log('[Calls] 🎤 Getting user media BEFORE creating peer (video:', video, ')');
       const stream = await getUserMedia(video, true);
       console.log('[Calls] ✅ Got media stream');
+      console.log('[Calls] Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.label} (enabled: ${t.enabled})`));
 
-      // STEP 2: Attach to local video element
-      if (localVideoRef.current) {
+      // STEP 2: Attach to local video element (only for video calls)
+      if (callTypeToAccept === 'video' && localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         localVideoRef.current.muted = true;
         try { await localVideoRef.current.play(); } catch (e) { /* autoplay */ }
@@ -609,7 +640,6 @@ const Calls = ({ walletAddress, onLogout }) => {
       };
 
       // STEP 4: Create responder peer WITH stream
-      // The stream will be in the SDP answer, so the initiator will receive it
       console.log('[Calls] 🔗 Creating responder peer WITH local stream');
       peerRef.current = createPeer(
         false,              // NOT initiator (responder)
@@ -619,12 +649,10 @@ const Calls = ({ walletAddress, onLogout }) => {
         onConnect,
         onError,
         stream,             // ✅ Stream included in SDP answer
-        onStream,           // callback for remote stream
-        callTypeToAccept    // ✅ Match initiator's callType
+        onStream            // callback for remote stream
       );
 
       // STEP 5: NOW signal the stored offer to the peer
-      // Since the peer was created with our stream, the SDP answer will include our tracks
       console.log('[Calls] 📡 Signaling stored offer to responder peer');
       try {
         peerRef.current.signal(storedOffer);
@@ -639,8 +667,6 @@ const Calls = ({ walletAddress, onLogout }) => {
       // Clear the pending offer
       pendingOfferRef.current = null;
 
-      setInCall(true);
-      setCallType(callTypeToAccept);
       incomingCallRef.current = null;
       setIncomingCall(null);
       setLoading(false);
@@ -650,6 +676,9 @@ const Calls = ({ walletAddress, onLogout }) => {
       console.error('[Calls] Error accepting call:', error);
       setError(`Failed to accept call: ${error.message}`);
       setLoading(false);
+      setInCall(false);
+      setCallType(null);
+      callTypeRef.current = null;
     }
   };
 
@@ -688,6 +717,7 @@ const Calls = ({ walletAddress, onLogout }) => {
 
     setInCall(false);
     setCallType(null);
+    callTypeRef.current = null;
     setIsMuted(false);
     setIsVideoOff(false);
     pendingCallTypeRef.current = null;
@@ -698,6 +728,9 @@ const Calls = ({ walletAddress, onLogout }) => {
     }
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
     }
   };
 
@@ -878,31 +911,42 @@ const Calls = ({ walletAddress, onLogout }) => {
             </Paper>
           )}
 
-          {/* Video Call Interface */}
+          {/* Hidden audio element — ALWAYS rendered so audio streams work */}
+          <audio
+            ref={remoteAudioRef}
+            autoPlay
+            playsInline
+            style={{ display: 'none' }}
+          />
+
+          {/* Call Interface */}
           {inCall && (
             <Paper sx={{
-              background: '#000',
+              background: callType === 'audio'
+                ? 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 50%, #1a1f3a 100%)'
+                : '#000',
               borderRadius: '16px',
               padding: '20px',
               position: 'relative',
-              minHeight: '500px'
+              minHeight: callType === 'audio' ? '350px' : '500px'
             }}>
-              {/* Remote Video */}
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                muted={false}
-                style={{
-                  width: '100%',
-                  height: '500px',
-                  borderRadius: '12px',
-                  background: '#000',
-                  objectFit: 'cover',
-                }}
-              />
+              {/* Remote Video (only for video calls) */}
+              {callType === 'video' && (
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  style={{
+                    width: '100%',
+                    height: '500px',
+                    borderRadius: '12px',
+                    background: '#000',
+                    objectFit: 'cover',
+                  }}
+                />
+              )}
 
-              {/* Local Video (PiP) */}
+              {/* Local Video (PiP) — only for video calls */}
               {callType === 'video' && (
                 <video
                   ref={localVideoRef}
@@ -924,45 +968,75 @@ const Calls = ({ walletAddress, onLogout }) => {
                 />
               )}
 
-              {/* Audio Only Indicator */}
+              {/* Audio Call UI */}
               {callType === 'audio' && (
                 <Box sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  textAlign: 'center'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '280px',
+                  paddingTop: '30px'
                 }}>
-                  <Avatar sx={{
-                    width: 120,
-                    height: 120,
-                    background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-                    fontSize: '60px',
-                    margin: '0 auto 20px'
+                  <Box sx={{
+                    position: 'relative',
+                    marginBottom: '20px'
                   }}>
-                    {getAvatarEmoji(selectedFriend.name)}
-                  </Avatar>
-                  <Typography sx={{ color: '#fff', fontSize: '24px', fontWeight: 600 }}>
+                    <Avatar sx={{
+                      width: 120,
+                      height: 120,
+                      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+                      fontSize: '60px',
+                      boxShadow: '0 0 40px rgba(138, 102, 255, 0.4)',
+                      animation: connected ? 'none' : 'pulse 2s infinite'
+                    }}>
+                      {getAvatarEmoji(selectedFriend.name)}
+                    </Avatar>
+                    {/* Pulsing ring animation when connecting */}
+                    {!connected && (
+                      <Box sx={{
+                        position: 'absolute',
+                        top: -8,
+                        left: -8,
+                        width: 136,
+                        height: 136,
+                        borderRadius: '50%',
+                        border: '2px solid rgba(138, 102, 255, 0.5)',
+                        animation: 'pulse-ring 1.5s ease-out infinite'
+                      }} />
+                    )}
+                  </Box>
+                  <Typography sx={{ color: '#fff', fontSize: '24px', fontWeight: 600, mb: 1 }}>
                     {selectedFriend.name}
                   </Typography>
-                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '16px' }}>
-                    Audio Call in Progress
+                  <Typography sx={{
+                    color: connected ? '#10b981' : 'rgba(255, 255, 255, 0.6)',
+                    fontSize: '16px',
+                    fontWeight: connected ? 600 : 400
+                  }}>
+                    {connected ? '🔊 Audio Call Connected' : '📞 Connecting...'}
                   </Typography>
+                  {isMuted && (
+                    <Typography sx={{ color: '#ef4444', fontSize: '14px', mt: 1 }}>
+                      🔇 You are muted
+                    </Typography>
+                  )}
                 </Box>
               )}
 
               {/* Call Controls */}
               <Box sx={{
-                position: 'absolute',
-                bottom: '20px',
+                position: callType === 'video' ? 'absolute' : 'relative',
+                bottom: callType === 'video' ? '20px' : 'auto',
                 left: '50%',
                 transform: 'translateX(-50%)',
                 display: 'flex',
                 gap: 2,
-                background: 'rgba(0, 0, 0, 0.7)',
+                background: callType === 'video' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(138, 102, 255, 0.1)',
                 padding: '15px 30px',
                 borderRadius: '50px',
-                backdropFilter: 'blur(10px)'
+                backdropFilter: 'blur(10px)',
+                marginTop: callType === 'audio' ? '20px' : '0'
               }}>
                 <IconButton
                   onClick={handleToggleMute}
