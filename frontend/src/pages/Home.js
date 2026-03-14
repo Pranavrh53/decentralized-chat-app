@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Navbar from "../components/Navbar";
 import ChatPanel from "../components/ChatPanel";
+import HumanAvatar from "../components/HumanAvatar";
 
 const Home = ({ walletAddress, onLogout }) => {
   const [friends, setFriends] = useState([]);
@@ -298,12 +299,6 @@ const Home = ({ walletAddress, onLogout }) => {
     }
   };
 
-  const getAvatarEmoji = (username) => {
-    const emojis = ['👨', '👩', '🧑', '👦', '👧', '🧔', '👴', '👵', '👨‍💼', '👩‍💼', '🧑‍💻', '👨‍🎓', '👩‍🎓', '🧑‍🎨', '👨‍🔬', '👩‍🔬'];
-    const index = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % emojis.length;
-    return emojis[index];
-  };
-
   const filteredFriends = friends.filter(friend => 
     friend.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
     friend.address.toLowerCase().includes(searchQuery.toLowerCase())
@@ -312,62 +307,68 @@ const Home = ({ walletAddress, onLogout }) => {
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #2d1b4e 100%)',
+      background: '#000000',
     },
     mainContent: {
       display: 'flex',
       height: 'calc(100vh - 80px)',
-      gap: '20px',
-      padding: selectedUser ? '20px' : '0'
+      gap: 20,
+      padding: selectedUser ? '20px 24px 40px' : '0 24px 40px',
+      maxWidth: '100%',
     },
     sidebar: {
-      width: selectedUser ? '320px' : '400px',
-      minWidth: selectedUser ? '320px' : '400px',
+      width: selectedUser ? 360 : 400,
+      minWidth: selectedUser ? 360 : 400,
       transition: 'all 0.3s ease',
-      background: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
-      borderRight: '1px solid rgba(138, 102, 255, 0.2)',
+      background: 'rgba(0,0,0,0.55)',
+      borderRadius: 24,
+      border: '1px solid rgba(255,40,0,0.15)',
+      boxShadow: '0 40px 120px rgba(0,0,0,0.9)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      overflow: 'hidden',
     },
     searchContainer: {
-      padding: '20px'
+      padding: 20,
     },
     searchBox: {
       width: '100%',
       padding: '12px 16px 12px 40px',
-      background: 'rgba(26, 31, 58, 0.6)',
-      border: '2px solid rgba(138, 102, 255, 0.3)',
-      borderRadius: '25px',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,40,0,0.2)',
+      borderRadius: 12,
       color: '#fff',
-      fontSize: '14px',
+      fontSize: 14,
       outline: 'none',
       transition: 'all 0.3s ease',
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
     },
     searchIcon: {
       position: 'absolute',
-      left: '35px',
-      top: '33px',
-      color: '#ff8c42',
-      fontSize: '18px'
+      left: 35,
+      top: 33,
+      color: '#ff3300',
+      fontSize: 18,
     },
     friendsList: {
       flex: 1,
       overflowY: 'auto',
-      padding: '20px'
+      padding: 20,
     },
     friendCard: {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '15px',
-      marginBottom: '10px',
-      background: 'rgba(26, 31, 58, 0.4)',
-      borderRadius: '12px',
-      border: '1px solid rgba(138, 102, 255, 0.2)',
+      padding: '18px 20px',
+      marginBottom: 8,
+      background: 'rgba(255,255,255,0.02)',
+      borderRadius: 12,
+      border: '1px solid rgba(255,40,0,0.12)',
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      gap: '15px'
+      transition: 'all 0.25s ease',
+      gap: 15,
     },
     avatar: {
       width: '50px',
@@ -395,16 +396,16 @@ const Home = ({ walletAddress, onLogout }) => {
     },
     friendAddress: {
       fontSize: '12px',
-      color: '#8a66ff',
-      fontFamily: 'monospace'
+      color: 'rgba(255,255,255,0.5)',
+      fontFamily: "'Space Mono', monospace",
     },
     chatArea: {
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: selectedUser ? '0' : '40px',
-      overflowY: 'auto'
+      padding: selectedUser ? 0 : 40,
+      overflowY: 'auto',
     },
     chatSection: {
       flex: 1,
@@ -451,28 +452,19 @@ const Home = ({ walletAddress, onLogout }) => {
       width: '100%'
     },
     userCard: {
-      background: 'rgba(26, 31, 58, 0.6)',
-      borderRadius: '16px',
-      padding: '20px',
-      border: '1px solid rgba(138, 102, 255, 0.2)',
+      background: 'rgba(0,0,0,0.55)',
+      borderRadius: 16,
+      padding: 24,
+      border: '1px solid rgba(255,40,0,0.15)',
       textAlign: 'center',
-      transition: 'all 0.3s ease',
-      cursor: 'pointer'
+      transition: 'all 0.25s ease',
+      cursor: 'pointer',
     },
     userAvatar: {
-      width: '80px',
-      height: '80px',
+      width: 80,
+      height: 80,
       borderRadius: '50%',
-      background: 'linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '40px',
       margin: '0 auto 15px',
-      animation: 'float 3s ease-in-out infinite',
-      boxShadow: '0 4px 15px rgba(255, 140, 66, 0.4)',
-      transition: 'transform 0.1s ease-out',
-      cursor: 'pointer'
     },
     userName: {
       fontSize: '18px',
@@ -481,45 +473,47 @@ const Home = ({ walletAddress, onLogout }) => {
       marginBottom: '8px'
     },
     userAddress: {
-      fontSize: '12px',
-      color: '#8a66ff',
-      fontFamily: 'monospace',
-      marginBottom: '15px'
+      fontSize: 12,
+      color: 'rgba(255,255,255,0.5)',
+      fontFamily: "'Space Mono', monospace",
+      marginBottom: 15,
     },
     addBtn: {
       width: '100%',
-      padding: '10px 20px',
-      background: 'linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%)',
-      color: 'white',
+      padding: '12px 24px',
+      background: '#ffffff',
+      color: '#000000',
       border: 'none',
-      borderRadius: '8px',
-      fontSize: '14px',
-      fontWeight: '600',
+      borderRadius: 12,
+      fontSize: 14,
+      fontWeight: 600,
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      boxShadow: '0 4px 15px rgba(255, 140, 66, 0.4)'
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
     },
     sectionTitle: {
-      fontSize: '32px',
-      fontWeight: '700',
-      color: '#fff',
+      fontFamily: "'Space Mono', monospace",
+      fontSize: 22,
+      fontWeight: 600,
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
+      color: '#ffffff',
       textAlign: 'center',
-      marginBottom: '30px',
-      textShadow: '0 0 20px rgba(138, 102, 255, 0.5)'
+      marginBottom: 30,
     },
     addFriendSection: {
-      padding: '20px',
-      borderTop: '1px solid rgba(138, 102, 255, 0.2)',
-      borderBottom: '1px solid rgba(138, 102, 255, 0.2)',
-      background: 'rgba(26, 31, 58, 0.3)'
+      padding: 20,
+      borderTop: '1px solid rgba(255,40,0,0.12)',
+      borderBottom: '1px solid rgba(255,40,0,0.12)',
+      background: 'rgba(0,0,0,0.3)',
     },
     addFriendTitle: {
-      fontSize: '14px',
-      fontWeight: '600',
-      color: '#ff8c42',
-      marginBottom: '12px',
+      fontSize: 12,
+      fontWeight: 600,
+      color: '#ff3300',
+      marginBottom: 12,
       textTransform: 'uppercase',
-      letterSpacing: '1px'
+      letterSpacing: '0.2em',
+      fontFamily: "'Space Mono', monospace",
     },
     inputGroup: {
       display: 'flex',
@@ -528,40 +522,41 @@ const Home = ({ walletAddress, onLogout }) => {
     input: {
       flex: 1,
       padding: '10px 14px',
-      background: 'rgba(26, 31, 58, 0.6)',
-      border: '2px solid rgba(138, 102, 255, 0.3)',
-      borderRadius: '8px',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,40,0,0.2)',
+      borderRadius: 12,
       color: '#fff',
-      fontSize: '13px',
+      fontSize: 13,
       outline: 'none',
       transition: 'all 0.3s ease',
       boxSizing: 'border-box',
-      fontFamily: 'monospace'
+      fontFamily: "'Space Mono', monospace",
     },
     addButton: {
-      padding: '10px 20px',
-      background: 'linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%)',
-      color: 'white',
+      padding: '12px 24px',
+      background: '#ffffff',
+      color: '#000000',
       border: 'none',
-      borderRadius: '8px',
-      fontSize: '14px',
-      fontWeight: '600',
+      borderRadius: 12,
+      fontSize: 14,
+      fontWeight: 600,
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      boxShadow: '0 4px 15px rgba(255, 140, 66, 0.4)',
-      whiteSpace: 'nowrap'
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
+      whiteSpace: 'nowrap',
     },
     quickChatSection: {
       width: '100%',
-      maxWidth: '600px',
-      padding: '30px',
-      background: 'rgba(26, 31, 58, 0.6)',
-      borderRadius: '20px',
-      border: '1px solid rgba(138, 102, 255, 0.2)',
-      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
-      marginBottom: '40px'
+      maxWidth: 600,
+      padding: 28,
+      background: 'rgba(0,0,0,0.55)',
+      borderRadius: 24,
+      border: '1px solid rgba(255,40,0,0.15)',
+      boxShadow: '0 40px 120px rgba(0,0,0,0.9)',
+      backdropFilter: 'blur(20px)',
+      marginBottom: 40,
     },
     quickChatTitle: {
+      fontFamily: "'Space Mono', monospace",
       fontSize: '24px',
       fontWeight: '600',
       color: '#fff',
@@ -582,47 +577,48 @@ const Home = ({ walletAddress, onLogout }) => {
     quickChatInput: {
       flex: 1,
       padding: '14px 18px',
-      background: 'rgba(26, 31, 58, 0.8)',
-      border: '2px solid rgba(138, 102, 255, 0.3)',
-      borderRadius: '12px',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,40,0,0.2)',
+      borderRadius: 12,
       color: '#fff',
-      fontSize: '14px',
+      fontSize: 14,
       outline: 'none',
       transition: 'all 0.3s ease',
       boxSizing: 'border-box',
-      fontFamily: 'monospace'
+      fontFamily: "'Space Mono', monospace",
     },
     quickChatButton: {
-      padding: '14px 30px',
-      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-      color: 'white',
+      padding: '12px 30px',
+      background: '#ffffff',
+      color: '#000000',
       border: 'none',
-      borderRadius: '12px',
-      fontSize: '16px',
-      fontWeight: '600',
+      borderRadius: 12,
+      fontSize: 14,
+      fontWeight: 600,
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
-      whiteSpace: 'nowrap'
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
+      whiteSpace: 'nowrap',
     },
     divider: {
       display: 'flex',
       alignItems: 'center',
       margin: '40px 0',
       width: '100%',
-      maxWidth: '600px'
+      maxWidth: 600,
     },
     dividerLine: {
       flex: 1,
-      height: '1px',
-      background: 'linear-gradient(90deg, transparent, rgba(138, 102, 255, 0.5), transparent)'
+      height: 1,
+      background: 'linear-gradient(90deg, transparent, rgba(255,60,0,0.4), transparent)',
     },
     dividerText: {
       padding: '0 20px',
-      fontSize: '14px',
-      color: '#8a66ff',
-      fontWeight: '600'
-    }
+      fontSize: 12,
+      color: '#ff3300',
+      fontWeight: 600,
+      fontFamily: "'Space Mono', monospace",
+      letterSpacing: '0.2em',
+    },
   };
 
   return (
@@ -655,58 +651,22 @@ const Home = ({ walletAddress, onLogout }) => {
         <div style={styles.sidebar}>
           <div style={styles.searchContainer}>
             <div style={{ position: 'relative' }}>
-              <span style={styles.searchIcon}>🔍</span>
+              
               <input
                 type="text"
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={styles.searchBox}
-                onFocus={(e) => e.target.style.borderColor = '#ff8c42'}
-                onBlur={(e) => e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)'}
+                onFocus={(e) => e.target.style.borderColor = 'rgba(255,60,0,0.5)'}
+                onBlur={(e) => e.target.style.borderColor = 'rgba(255,40,0,0.2)'}
               />
             </div>
           </div>
 
           {/* Add Friend by Address */}
-          <div style={styles.addFriendSection}>
-            <div style={styles.addFriendTitle}>➕ Add Friend</div>
-            <input
-              type="text"
-              placeholder="Friend's Name (optional)"
-              value={newFriendName}
-              onChange={(e) => setNewFriendName(e.target.value)}
-              style={{ ...styles.input, marginBottom: '10px' }}
-              onFocus={(e) => e.target.style.borderColor = '#ff8c42'}
-              onBlur={(e) => e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)'}
-            />
-            <div style={styles.inputGroup}>
-              <input
-                type="text"
-                placeholder="0x... wallet address"
-                value={newFriendAddress}
-                onChange={(e) => setNewFriendAddress(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addFriendByAddress()}
-                style={styles.input}
-                onFocus={(e) => e.target.style.borderColor = '#ff8c42'}
-                onBlur={(e) => e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)'}
-              />
-              <button
-                onClick={addFriendByAddress}
-                style={styles.addButton}
-                onMouseEnter={(e) => {
-                  e.target.style.transform = 'scale(1.05)';
-                  e.target.style.boxShadow = '0 6px 20px rgba(255, 140, 66, 0.6)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.transform = 'scale(1)';
-                  e.target.style.boxShadow = '0 4px 15px rgba(255, 140, 66, 0.4)';
-                }}
-              >
-                Add
-              </button>
-            </div>
-          </div>
+          
+            
 
           <div style={styles.friendsList}>
             {filteredFriends.length > 0 ? (
@@ -716,16 +676,16 @@ const Home = ({ walletAddress, onLogout }) => {
                   style={styles.friendCard}
                   onClick={() => startChat(friend)}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(138, 102, 255, 0.2)';
-                    e.currentTarget.style.transform = 'translateX(10px)';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                    e.currentTarget.style.borderColor = 'rgba(255,60,0,0.3)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(26, 31, 58, 0.4)';
-                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+                    e.currentTarget.style.borderColor = 'rgba(255,40,0,0.12)';
                   }}
                 >
-                  <div 
-                    style={styles.avatar}
+                  <div
+                    style={{ ...styles.avatar, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, background: 'transparent', boxShadow: 'none' }}
                     onMouseMove={(e) => {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const x = e.clientX - rect.left - rect.width / 2;
@@ -736,7 +696,7 @@ const Home = ({ walletAddress, onLogout }) => {
                       e.currentTarget.style.transform = 'translate(0, 0) scale(1)';
                     }}
                   >
-                    {getAvatarEmoji(friend.username)}
+                    <HumanAvatar address={friend.address} size={50} />
                   </div>
                   <div style={styles.friendInfo}>
                     <div style={styles.friendName}>{friend.username}</div>
@@ -797,27 +757,25 @@ const Home = ({ walletAddress, onLogout }) => {
                 onKeyPress={(e) => e.key === 'Enter' && startQuickChat()}
                 style={styles.quickChatInput}
                 onFocus={(e) => {
-                  e.target.style.borderColor = '#8a66ff';
-                  e.target.style.boxShadow = '0 0 15px rgba(138, 102, 255, 0.3)';
+                  e.target.style.borderColor = 'rgba(255,60,0,0.5)';
                 }}
                 onBlur={(e) => {
-                  e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)';
-                  e.target.style.boxShadow = 'none';
+                  e.target.style.borderColor = 'rgba(255,40,0,0.2)';
                 }}
               />
               <button
                 onClick={startQuickChat}
                 style={styles.quickChatButton}
                 onMouseEnter={(e) => {
-                  e.target.style.transform = 'scale(1.05)';
-                  e.target.style.boxShadow = '0 6px 25px rgba(138, 102, 255, 0.6)';
+                  e.target.style.transform = 'scale(1.02)';
+                  e.target.style.boxShadow = '0 40px 100px rgba(0,0,0,1)';
                 }}
                 onMouseLeave={(e) => {
                   e.target.style.transform = 'scale(1)';
-                  e.target.style.boxShadow = '0 4px 15px rgba(138, 102, 255, 0.4)';
+                  e.target.style.boxShadow = '0 30px 80px rgba(0,0,0,0.9)';
                 }}
               >
-                Start Chat 🚀
+                Start Chat
               </button>
             </div>
           </div>
@@ -836,22 +794,21 @@ const Home = ({ walletAddress, onLogout }) => {
                 onClick={addTestUsers}
                 style={{
                   padding: '12px 24px',
-                  background: 'rgba(138, 102, 255, 0.2)',
-                  border: '1px solid rgba(138, 102, 255, 0.4)',
-                  borderRadius: '10px',
-                  color: '#8a66ff',
-                  fontSize: '14px',
-                  fontWeight: '600',
+                  background: 'transparent',
+                  border: '1px solid rgba(255,60,0,0.6)',
+                  borderRadius: 12,
+                  color: '#ff3300',
+                  fontSize: 14,
+                  fontWeight: 600,
                   cursor: 'pointer',
-                  transition: 'all 0.3s ease'
+                  transition: 'all 0.3s ease',
+                  fontFamily: "'Space Mono', monospace",
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = 'rgba(138, 102, 255, 0.3)';
-                  e.target.style.transform = 'scale(1.05)';
+                  e.target.style.background = 'rgba(255,60,0,0.1)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = 'rgba(138, 102, 255, 0.2)';
-                  e.target.style.transform = 'scale(1)';
+                  e.target.style.background = 'transparent';
                 }}
               >
                 🧪 Add Test Users (For Testing)
@@ -865,18 +822,16 @@ const Home = ({ walletAddress, onLogout }) => {
                     key={index}
                     style={styles.userCard}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(138, 102, 255, 0.2)';
-                      e.currentTarget.style.transform = 'translateY(-5px)';
-                      e.currentTarget.style.boxShadow = '0 8px 25px rgba(138, 102, 255, 0.4)';
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                      e.currentTarget.style.borderColor = 'rgba(255,60,0,0.3)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(26, 31, 58, 0.6)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.background = 'rgba(0,0,0,0.55)';
+                      e.currentTarget.style.borderColor = 'rgba(255,40,0,0.15)';
                     }}
                   >
-                    <div 
-                      style={styles.userAvatar}
+                    <div
+                      style={{ ...styles.userAvatar, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, background: 'transparent', boxShadow: 'none' }}
                       onMouseMove={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
                         const x = e.clientX - rect.left - rect.width / 2;
@@ -887,7 +842,7 @@ const Home = ({ walletAddress, onLogout }) => {
                         e.currentTarget.style.transform = 'translate(0, 0) scale(1)';
                       }}
                     >
-                      {getAvatarEmoji(user.username)}
+                      <HumanAvatar address={user.address} size={80} />
                     </div>
                     <div style={styles.userName}>{user.username}</div>
                     <div style={styles.userAddress}>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { initWeb3, getWeb3, getDynamicGasPrice } from '../utils/blockchain';
+import { initWeb3, getWeb3 } from '../utils/blockchain';
+import HumanAvatar from '../components/HumanAvatar';
 import ChatMetadataABI from '../abis/ChatMetadata.json';
 import { 
   exportChatHistory, 
@@ -265,8 +266,6 @@ const Friends = ({ walletAddress, onLogout }) => {
         console.log('Friend check:', checkErr.message || 'continuing...');
       }
       
-      const gasPrice = await getDynamicGasPrice(1.3);
-      
       // Estimate gas first to catch reverts early
       let estimatedGas;
       try {
@@ -304,8 +303,7 @@ const Friends = ({ walletAddress, onLogout }) => {
         .addFriend(newFriendAddress.trim(), newFriendName.trim())
         .send({ 
           from: walletAddress,
-          gas: gasLimit,
-          gasPrice: gasPrice
+          gas: gasLimit
         });
 
       console.log('✅ Friend added! Transaction:', tx.transactionHash);
@@ -376,14 +374,11 @@ const Friends = ({ walletAddress, onLogout }) => {
         
         console.log(`🔗 Removing friend from blockchain...`);
         const web3 = getWeb3();
-        const gasPrice = await getDynamicGasPrice(1.3);
-        
         const tx = await contract.methods
           .removeFriend(friendAddress)
           .send({ 
             from: walletAddress,
-            gas: 100000,
-            gasPrice: gasPrice
+            gas: 100000
           });
 
         console.log('✅ Friend removed from blockchain! Transaction:', tx.transactionHash);
@@ -541,69 +536,71 @@ const Friends = ({ walletAddress, onLogout }) => {
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #2d1b4e 100%)',
+      background: '#000000',
     },
     content: {
-      padding: '40px',
+      padding: '96px 24px 40px',
       maxWidth: '1200px',
       margin: '0 auto',
     },
     header: {
-      marginBottom: '40px',
+      marginBottom: '32px',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center'
     },
     title: {
-      fontSize: '42px',
-      fontWeight: '700',
+      fontFamily: "'Space Mono', monospace",
+      fontSize: '32px',
+      fontWeight: 600,
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
       color: '#ffffff',
-      marginBottom: '10px',
-      textShadow: '0 0 20px rgba(138, 102, 255, 0.5)'
+      marginBottom: '8px',
     },
     subtitle: {
-      fontSize: '16px',
-      color: '#b8b8d1'
+      fontSize: '14px',
+      color: 'rgba(255,255,255,0.4)',
+      fontFamily: "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     },
     addButton: {
-      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-      color: '#ffffff',
+      background: '#ffffff',
+      color: '#000000',
       padding: '12px 30px',
-      borderRadius: '12px',
+      borderRadius: '999px',
       fontWeight: '600',
-      fontSize: '16px',
+      fontSize: '14px',
       textTransform: 'none',
-      boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
       '&:hover': {
-        background: 'linear-gradient(135deg, #9d7aff 0%, #7755dd 100%)',
-        boxShadow: '0 6px 20px rgba(138, 102, 255, 0.6)',
+        background: '#ffffff',
+        boxShadow: '0 40px 120px rgba(0,0,0,1)',
       }
     },
     friendsList: {
-      background: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
-      borderRadius: '20px',
-      border: '1px solid rgba(138, 102, 255, 0.2)',
-      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+      background: 'rgba(0,0,0,0.55)',
+      borderRadius: '24px',
+      border: '1px solid rgba(255,40,0,0.15)',
+      boxShadow: '0 40px 120px rgba(0,0,0,0.9)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
       overflow: 'hidden'
     },
     friendItem: {
-      padding: '20px',
-      transition: 'all 0.3s ease',
+      padding: '18px 20px',
+      transition: 'all 0.25s ease',
       '&:hover': {
-        backgroundColor: 'rgba(138, 102, 255, 0.1)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
       }
     },
     emptyState: {
       textAlign: 'center',
       padding: '60px 20px',
-      color: '#b8b8d1'
+      color: 'rgba(255,255,255,0.4)'
     },
     avatar: {
       width: '56px',
       height: '56px',
-      background: 'linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%)',
-      fontSize: '28px',
-      boxShadow: '0 4px 12px rgba(255, 140, 66, 0.4)',
     }
   };
 
@@ -628,22 +625,26 @@ const Friends = ({ walletAddress, onLogout }) => {
         <Box style={styles.header}>
           <Box>
             <Typography style={styles.title}>
-              👥 Friends
+              FRIENDS
               {contract && (
                 <Chip 
-                  label="⛓️ Blockchain" 
+                  label="ON-CHAIN" 
                   size="small"
                   sx={{ 
                     ml: 2, 
-                    backgroundColor: 'rgba(74, 222, 128, 0.2)', 
-                    color: '#4ade80',
+                  fontFamily: "'Space Mono', monospace",
+                  letterSpacing: '0.16em',
+                  backgroundColor: 'rgba(0,0,0,0.85)', 
+                  color: '#ff3300',
+                  borderRadius: '999px',
+                  border: '1px solid rgba(255,60,0,0.7)',
                     fontWeight: 600
                   }} 
                 />
               )}
             </Typography>
             <Typography style={styles.subtitle}>
-              {contract ? 'Friends stored on blockchain (decentralized)' : 'Manage your chat friends'}
+              {contract ? 'Friends stored on-chain and mirrored locally.' : 'Manage your decentralized chat peers.'}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 2 }}>
@@ -790,9 +791,7 @@ const Friends = ({ walletAddress, onLogout }) => {
                     }
                   >
                     <ListItemAvatar>
-                      <Avatar sx={styles.avatar}>
-                        {getAvatarEmoji(friend.name)}
-                      </Avatar>
+                      <HumanAvatar address={friend.address} size={56} />
                     </ListItemAvatar>
                     <ListItemText
                       primary={
@@ -860,7 +859,7 @@ const Friends = ({ walletAddress, onLogout }) => {
             </List>
           ) : (
             <Box sx={styles.emptyState}>
-              <AccountCircle sx={{ fontSize: 80, color: '#4a4a6a', mb: 2 }} />
+              <AccountCircle sx={{ fontSize: 80, color: 'rgba(255,60,0,0.6)', mb: 2 }} />
               <Typography variant="h6" sx={{ mb: 1 }}>
                 No Friends Yet
               </Typography>
@@ -910,9 +909,9 @@ const Friends = ({ walletAddress, onLogout }) => {
             </Alert>
           )}
           <Alert severity="info" sx={{ mb: 2 }}>
-            💡 <strong>Common Issues:</strong><br/>
+            <strong>Common Issues:</strong><br/>
             • Friend already exists - Remove them first<br/>
-            • Insufficient gas - Get test ETH from <a href="https://sepoliafaucet.com" target="_blank" rel="noopener" style={{color: '#8a66ff'}}>Sepolia Faucet</a><br/>
+            • Insufficient gas - Get test ETH from <a href="https://sepoliafaucet.com" target="_blank" rel="noopener" style={{color: '#ff3300'}}>Sepolia Faucet</a><br/>
             • Invalid address - Check the wallet address format
           </Alert>
           <TextField
@@ -1011,12 +1010,12 @@ const Friends = ({ walletAddress, onLogout }) => {
           )}
           {exportSuccess && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              ✅ Export successful! File downloaded to your computer.
+              Export successful. File downloaded to your computer.
             </Alert>
           )}
           
           <Typography variant="body2" sx={{ color: '#b8b8d1', mb: 3 }}>
-            💾 Export your complete chat history as an encrypted file. You can import it on any device or browser.
+            Export your complete chat history as an encrypted file. You can import it on any device or browser.
           </Typography>
 
           <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(138, 102, 255, 0.1)', borderRadius: 2 }}>
@@ -1061,7 +1060,7 @@ const Friends = ({ walletAddress, onLogout }) => {
           />
 
           <Alert severity="warning" sx={{ mb: 2 }}>
-            ⚠️ Remember this password! You'll need it to import your data later.
+            Remember this password – you'll need it to import your data later.
           </Alert>
 
           {loading && (
@@ -1152,7 +1151,7 @@ const Friends = ({ walletAddress, onLogout }) => {
           )}
           {importSuccess && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              ✅ Import successful!<br />
+              Import successful.<br />
               • {importSuccess.friendsCount} friends imported<br />
               • {importSuccess.messagesCount} messages restored<br />
               • {importSuccess.conversationsCount} conversations
@@ -1160,7 +1159,7 @@ const Friends = ({ walletAddress, onLogout }) => {
           )}
 
           <Typography variant="body2" sx={{ color: '#b8b8d1', mb: 3 }}>
-            📤 Import your chat history from a backup file. Your data will be restored to this device.
+            Import your chat history from a backup file. Your data will be restored to this device.
           </Typography>
 
           <Box sx={{ mb: 3 }}>

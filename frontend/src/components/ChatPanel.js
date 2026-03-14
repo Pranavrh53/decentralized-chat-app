@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import HumanAvatar from "./HumanAvatar";
+import AvatarAnimated3D from "./AvatarAnimated3D";
 import { 
   initWeb3,
   storeMessageMetadata,
@@ -460,12 +462,6 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
     }
   };
 
-  const getAvatarEmoji = (username) => {
-    const emojis = ['👨', '👩', '🧑', '👦', '👧', '🧔', '👴', '👵'];
-    const index = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % emojis.length;
-    return emojis[index];
-  };
-
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -477,18 +473,16 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       flexDirection: 'column',
       height: '100%',
       minHeight: '700px',
-      background: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
-      borderRadius: '20px',
-      border: '1px solid rgba(138, 102, 255, 0.2)',
+      background: 'transparent',
       overflow: 'hidden',
     },
     header: {
-      padding: '25px 30px',
-      background: 'rgba(138, 102, 255, 0.1)',
-      borderBottom: '1px solid rgba(138, 102, 255, 0.2)',
+      padding: '16px 24px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: 12,
     },
     userInfo: {
       display: 'flex',
@@ -506,59 +500,62 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       fontSize: '28px',
     },
     userName: {
-      fontSize: '20px',
-      fontWeight: '700',
+      fontSize: '18px',
+      fontWeight: 600,
       color: '#ffffff',
+      fontFamily: "'Inter', system-ui, sans-serif",
     },
     userAddress: {
       fontSize: '13px',
-      color: '#8a66ff',
-      fontFamily: 'monospace',
+      color: 'rgba(255,255,255,0.5)',
+      fontFamily: "'Space Mono', monospace",
     },
     closeBtn: {
       background: 'transparent',
-      border: '2px solid rgba(255, 107, 53, 0.5)',
-      color: '#ff6b35',
-      borderRadius: '10px',
+      border: '1px solid rgba(255,60,0,0.6)',
+      color: '#ff3300',
+      borderRadius: 12,
       padding: '10px 20px',
-      fontSize: '15px',
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: 600,
       cursor: 'pointer',
       transition: 'all 0.3s ease',
     },
     connectionStatus: {
-      padding: '15px 30px',
-      background: connected ? 'rgba(74, 222, 128, 0.2)' : 'rgba(255, 140, 66, 0.2)',
-      borderBottom: '1px solid ' + (connected ? 'rgba(74, 222, 128, 0.3)' : 'rgba(255, 140, 66, 0.3)'),
-      display: 'flex',
+      padding: '4px 12px',
+      borderRadius: 999,
+      background: 'rgba(255,60,0,0.1)',
+      border: '1px solid rgba(255,60,0,0.25)',
+      display: 'inline-flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: 6,
     },
     statusText: {
-      fontSize: '15px',
-      color: connected ? '#4ade80' : '#ff8c42',
-      fontWeight: '600',
+      fontSize: '14px',
+      color: connected ? 'rgba(160,255,210,0.95)' : '#ff3300',
+      fontWeight: 600,
+      fontFamily: "'Space Mono', monospace",
+      letterSpacing: '0.08em',
     },
     connectBtn: {
-      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-      color: 'white',
+      background: '#ffffff',
+      color: '#000000',
       border: 'none',
-      borderRadius: '10px',
+      borderRadius: 12,
       padding: '10px 24px',
-      fontSize: '15px',
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: 600,
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
     },
     messagesContainer: {
       flex: 1,
       overflowY: 'auto',
-      padding: '30px',
+      padding: '24px 20px 120px',
       display: 'flex',
       flexDirection: 'column',
-      gap: '16px',
-      minHeight: '450px',
+      gap: 12,
+      minHeight: 0,
     },
     message: {
       maxWidth: '75%',
@@ -568,12 +565,14 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
     },
     messageIncoming: {
       alignSelf: 'flex-start',
-      background: 'rgba(138, 102, 255, 0.2)',
+      background: 'linear-gradient(135deg, rgba(255,60,0,0.12) 0%, rgba(255,40,0,0.06) 100%)',
+      border: '1px solid rgba(255,60,0,0.25)',
       borderBottomLeftRadius: '4px',
     },
     messageOutgoing: {
       alignSelf: 'flex-end',
-      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+      background: 'linear-gradient(135deg, rgba(255,60,0,0.35) 0%, rgba(255,80,20,0.2) 100%)',
+      border: '1px solid rgba(255,60,0,0.4)',
       borderBottomRightRadius: '4px',
     },
     messageText: {
@@ -587,35 +586,38 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       color: 'rgba(255, 255, 255, 0.6)',
     },
     inputContainer: {
-      padding: '25px 30px',
-      background: 'rgba(26, 31, 58, 0.8)',
-      borderTop: '1px solid rgba(138, 102, 255, 0.2)',
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      padding: '16px 20px 24px',
+      background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 70%, transparent)',
       display: 'flex',
       flexDirection: 'column',
-      gap: '15px',
+      gap: 12,
+      backdropFilter: 'blur(12px)',
     },
     input: {
       flex: 1,
       padding: '14px 20px',
-      background: 'rgba(138, 102, 255, 0.1)',
-      border: '1px solid rgba(138, 102, 255, 0.3)',
-      borderRadius: '12px',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,40,0,0.2)',
+      borderRadius: 12,
       color: '#ffffff',
       fontSize: '16px',
       outline: 'none',
       transition: 'all 0.3s ease',
     },
     sendBtn: {
-      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-      color: 'white',
+      background: '#ffffff',
+      color: '#000000',
       border: 'none',
-      borderRadius: '12px',
+      borderRadius: 12,
       padding: '14px 32px',
-      fontSize: '16px',
-      fontWeight: '600',
+      fontSize: 16,
+      fontWeight: 600,
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
     },
     emptyState: {
       textAlign: 'center',
@@ -623,79 +625,74 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
       color: '#b8b8d1',
     },
     errorBanner: {
-      padding: '15px 30px',
-      background: 'rgba(239, 68, 68, 0.2)',
-      borderBottom: '1px solid rgba(239, 68, 68, 0.3)',
+      margin: '0 20px 12px',
+      padding: '12px 16px',
+      borderRadius: 12,
+      background: 'rgba(239, 68, 68, 0.15)',
+      border: '1px solid rgba(239, 68, 68, 0.4)',
       color: '#ef4444',
-      fontSize: '15px',
+      fontSize: 14,
     },
   };
 
   if (!selectedUser) {
     return (
       <div style={styles.container}>
-        <div style={styles.emptyState}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>💬</div>
-          <h3 style={{ fontSize: '24px', marginBottom: '10px', color: '#fff' }}>
-            Select a user to start chatting
-          </h3>
-          <p>Choose a friend from the list to begin a secure conversation</p>
+        <div style={{ ...styles.emptyState, padding: '80px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <AvatarAnimated3D address={walletAddress || '0x0'} size={140} action="wave" />
+          <p style={{ marginTop: 24, fontSize: 18, color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>Select a friend to start chatting</p>
+          <p style={{ marginTop: 8, fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Choose from the list or start a quick chat</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
-      {/* Header */}
+    <div style={{ ...styles.container, position: 'relative' }}>
+      {/* Fluid header: user + status + close */}
       <div style={styles.header}>
         <div style={styles.userInfo}>
-          <div style={styles.avatar}>
-            {getAvatarEmoji(selectedUser.username)}
+          <div style={{ ...styles.avatar, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', padding: 0 }}>
+            <AvatarAnimated3D address={selectedUser.address} size={48} action="wave" />
           </div>
           <div>
             <div style={styles.userName}>{selectedUser.username}</div>
-            <div style={styles.userAddress}>
-              {selectedUser.address.substring(0, 6)}...{selectedUser.address.slice(-4)}
+            <div style={{ ...styles.userAddress, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span>{selectedUser.address.substring(0, 6)}...{selectedUser.address.slice(-4)}</span>
+              <span style={{ ...styles.connectionStatus, background: connected ? 'rgba(0,100,60,0.2)' : 'rgba(255,60,0,0.1)', borderColor: connected ? 'rgba(0,200,120,0.5)' : 'rgba(255,60,0,0.25)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: connected ? 'rgba(0,255,120,0.9)' : '#ff3300' }} />
+                <span style={{ ...styles.statusText, color: connected ? 'rgba(160,255,210,0.95)' : '#ff3300', fontSize: 12 }}>{connected ? 'Live' : 'Not connected'}</span>
+              </span>
             </div>
           </div>
         </div>
-        <button 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!connected && !isInitiator && (
+            <button 
+              style={styles.connectBtn}
+              onClick={startChat}
+              onMouseEnter={(e) => { e.target.style.transform = 'scale(1.02)'; }}
+              onMouseLeave={(e) => { e.target.style.transform = 'scale(1)'; }}
+            >
+              Connect
+            </button>
+          )}
+          {isInitiator && !connected && (
+            <span style={{ ...styles.statusText, fontSize: 12 }}>Connecting...</span>
+          )}
+          <button 
           style={styles.closeBtn}
           onClick={onClose}
           onMouseEnter={(e) => {
-            e.target.style.background = 'rgba(255, 107, 53, 0.2)';
+            e.target.style.background = 'rgba(255,60,0,0.15)';
           }}
           onMouseLeave={(e) => {
             e.target.style.background = 'transparent';
           }}
         >
-          ✕ Close
+          Close
         </button>
-      </div>
-
-      {/* Connection Status */}
-      <div style={styles.connectionStatus}>
-        <span style={styles.statusText}>
-          {connected ? '🟢 Connected' : '🔴 Not Connected'}
-        </span>
-        {!connected && !isInitiator && (
-          <button 
-            style={styles.connectBtn}
-            onClick={startChat}
-            onMouseEnter={(e) => {
-              e.target.style.transform = 'scale(1.05)';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.transform = 'scale(1)';
-            }}
-          >
-            Connect
-          </button>
-        )}
-        {isInitiator && !connected && (
-          <span style={styles.statusText}>⏳ Connecting...</span>
-        )}
+        </div>
       </div>
 
       {/* Error Banner */}
@@ -758,7 +755,7 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
-                      color: '#a78bfa',
+                      color: '#ff8c42',
                       textDecoration: 'underline',
                       fontSize: '14px',
                       display: 'inline-block',
@@ -783,9 +780,10 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
             </div>
           ))
         ) : (
-          <div style={{ ...styles.emptyState, padding: '20px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '10px' }}>📭</div>
-            <p>No messages yet. Start the conversation!</p>
+          <div style={{ ...styles.emptyState, padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <AvatarAnimated3D address={selectedUser.address} size={120} action="wave" />
+            <p style={{ marginTop: 20, fontSize: 16, color: 'rgba(255,255,255,0.8)' }}>No messages yet</p>
+            <p style={{ marginTop: 6, fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Say hi to start the conversation!</p>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -796,10 +794,10 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
         {/* File Preview */}
         {selectedFile && (
           <div style={{
-            padding: '12px',
-            background: 'rgba(138, 102, 255, 0.2)',
-            borderRadius: '8px',
-            marginBottom: '12px',
+              padding: '12px',
+              background: 'rgba(255,60,0,0.1)',
+              borderRadius: 12,
+              marginBottom: '12px',
             display: 'flex',
             alignItems: 'center',
             gap: '12px'
@@ -856,8 +854,8 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
               <button
                 onClick={handleSendFile}
                 style={{
-                  background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-                  color: 'white',
+                  background: '#ffffff',
+                  color: '#000000',
                   border: 'none',
                   borderRadius: '6px',
                   padding: '8px 16px',
@@ -870,7 +868,7 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
               </button>
             )}
             {loading && (
-              <div style={{ color: '#8a66ff', fontSize: '12px' }}>
+              <div style={{ color: '#ff3300', fontSize: '12px' }}>
                 Uploading... {uploadProgress}%
               </div>
             )}
@@ -891,9 +889,9 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
             onClick={() => fileInputRef.current?.click()}
             disabled={!connected || loading}
             style={{
-              background: 'rgba(138, 102, 255, 0.2)',
-              color: !connected || loading ? '#666' : '#8a66ff',
-              border: '1px solid rgba(138, 102, 255, 0.3)',
+              background: 'rgba(255,60,0,0.1)',
+              color: !connected || loading ? '#666' : '#ff3300',
+              border: '1px solid rgba(255,60,0,0.3)',
               borderRadius: '12px',
               padding: '14px 20px',
               cursor: !connected || loading ? 'not-allowed' : 'pointer',
@@ -915,12 +913,10 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
             onKeyPress={handleKeyPress}
             disabled={!connected || loading}
             onFocus={(e) => {
-              e.target.style.borderColor = 'rgba(138, 102, 255, 0.6)';
-              e.target.style.background = 'rgba(138, 102, 255, 0.15)';
+              e.target.style.borderColor = 'rgba(255,60,0,0.5)';
             }}
             onBlur={(e) => {
-              e.target.style.borderColor = 'rgba(138, 102, 255, 0.3)';
-              e.target.style.background = 'rgba(138, 102, 255, 0.1)';
+              e.target.style.borderColor = 'rgba(255,40,0,0.2)';
             }}
           />
 
@@ -935,18 +931,16 @@ const ChatPanel = ({ walletAddress, selectedUser, onClose }) => {
             disabled={!connected || !message.trim() || loading}
             onMouseEnter={(e) => {
               if (connected && message.trim() && !loading) {
-                e.target.style.transform = 'scale(1.05)';
-                e.target.style.boxShadow = '0 6px 20px rgba(138, 102, 255, 0.6)';
+                e.target.style.transform = 'scale(1.02)';
               }
             }}
             onMouseLeave={(e) => {
               if (connected && message.trim() && !loading) {
                 e.target.style.transform = 'scale(1)';
-                e.target.style.boxShadow = '0 4px 15px rgba(138, 102, 255, 0.4)';
               }
             }}
           >
-            Send 📤
+            Send
           </button>
         </div>
       </div>

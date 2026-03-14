@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { createTheme, ThemeProvider } from '@mui/material/styles';
 
 import { 
   initWeb3,
@@ -18,7 +17,6 @@ import {
   Button, 
   Typography, 
   Paper, 
-  Avatar, 
   List, 
   ListItem, 
   ListItemText, 
@@ -28,86 +26,11 @@ import {
   Tooltip,
   CircularProgress
 } from "@mui/material";
-import { Send as SendIcon, AccountCircle, Refresh as RefreshIcon, ArrowBack as ArrowBackIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
+import { Send as SendIcon, Refresh as RefreshIcon, ArrowBack as ArrowBackIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
 import { formatDistanceToNow } from 'date-fns';
 import { createPeer, setupSignaling, cleanup, setGlobalCallbacks } from "../utils/webrtc";
 import { sendFile, FileReceiver, validateFile, getFileIcon, formatFileSize } from "../utils/fileTransfer";
-
-// Create dark theme
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      main: '#8a66ff',
-      light: '#9d7aff',
-      dark: '#6644cc',
-    },
-    secondary: {
-      main: '#ff6b9d',
-    },
-    background: {
-      default: '#0a0e27',
-      paper: '#1a1f3a',
-    },
-    text: {
-      primary: '#ffffff',
-      secondary: '#b8b8d1',
-    },
-    error: {
-      main: '#ef4444',
-    },
-    success: {
-      main: '#4ade80',
-    },
-  },
-  typography: {
-    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-  },
-  components: {
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          backgroundImage: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
-          border: '1px solid rgba(138, 102, 255, 0.2)',
-        },
-      },
-    },
-    MuiTextField: {
-      styleOverrides: {
-        root: {
-          '& .MuiOutlinedInput-root': {
-            '& fieldset': {
-              borderColor: 'rgba(138, 102, 255, 0.3)',
-            },
-            '&:hover fieldset': {
-              borderColor: 'rgba(138, 102, 255, 0.5)',
-            },
-            '&.Mui-focused fieldset': {
-              borderColor: '#8a66ff',
-            },
-          },
-        },
-      },
-    },
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          borderRadius: '10px',
-          fontWeight: 600,
-        },
-        contained: {
-          background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-          boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
-          '&:hover': {
-            background: 'linear-gradient(135deg, #9d7aff 0%, #7755dd 100%)',
-            boxShadow: '0 6px 20px rgba(138, 102, 255, 0.6)',
-          },
-        },
-      },
-    },
-  },
-});
+import AvatarAnimated3D from "../components/AvatarAnimated3D";
 
 function Chat({ walletAddress }) {
   const { friendAddress } = useParams();
@@ -928,103 +851,164 @@ function Chat({ walletAddress }) {
   // Get username from localStorage
   const username = localStorage.getItem("username") || "Anonymous";
 
+  const shellStyles = {
+    page: {
+      minHeight: '100vh',
+      background: '#000000',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'flex-start',
+      padding: '96px 24px 40px'
+    },
+    card: {
+      width: '100%',
+      maxWidth: 980,
+      background: 'rgba(0,0,0,0.55)',
+      borderRadius: 24,
+      border: '1px solid rgba(255,40,0,0.15)',
+      boxShadow: '0 40px 120px rgba(0,0,0,0.9)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      padding: '28px 26px 26px',
+      color: '#ffffff',
+      animation: 'fadeUp .7s ease forwards',
+      fontFamily: "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    },
+    headingRow: {
+      display: 'flex',
+      alignItems: 'center',
+      marginBottom: 12
+    },
+    headingTitle: {
+      fontFamily: "'Space Mono', monospace",
+      fontSize: 22,
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase'
+    },
+    subText: {
+      fontSize: 13,
+      color: 'rgba(255,255,255,0.4)'
+    },
+    statusPill: (ok) => ({
+      display: 'inline-flex',
+      alignItems: 'center',
+      borderRadius: 999,
+      padding: '4px 10px',
+      fontSize: 11,
+      fontFamily: "'Space Mono', monospace",
+      letterSpacing: '0.12em',
+      textTransform: 'uppercase',
+      border: ok ? '1px solid rgba(0,200,120,0.6)' : '1px solid rgba(255,60,0,0.7)',
+      color: ok ? 'rgba(160,255,210,0.95)' : '#ff3300',
+      background: ok ? 'rgba(0,60,30,0.9)' : 'rgba(30,0,0,0.9)'
+    }),
+    glassSection: {
+      background: 'transparent',
+      padding: '16px 0',
+      marginTop: 16
+    },
+    inputBar: {
+      background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 100%)',
+      borderRadius: 16,
+      padding: 12,
+      marginTop: 16,
+      display: 'flex',
+      gap: 10,
+      alignItems: 'flex-end',
+      backdropFilter: 'blur(12px)',
+      border: '1px solid rgba(255,40,0,0.12)'
+    },
+    textField: {
+      flex: 1,
+      background: 'rgba(255,255,255,0.04)',
+      borderRadius: 12
+    },
+    primaryButton: {
+      minWidth: 90,
+      height: 40,
+      borderRadius: 12,
+      border: 'none',
+      background: '#ffffff',
+      color: '#000000',
+      fontWeight: 600,
+      fontSize: 13,
+      cursor: 'pointer',
+      position: 'relative',
+      overflow: 'hidden',
+      boxShadow: '0 18px 40px rgba(0,0,0,0.85)'
+    }
+  };
+
   return (
-    <Box sx={{ maxWidth: 800, mx: 'auto', p: 3 }}>
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+    <div style={shellStyles.page}>
+      <div style={shellStyles.card}>
+        <Box sx={shellStyles.headingRow}>
           <IconButton 
             onClick={() => navigate('/friends')} 
-            sx={{ mr: 2, color: 'primary.main' }}
+            sx={{ mr: 2, color: '#ff3300' }}
           >
             <ArrowBackIcon />
           </IconButton>
-          <Typography variant="h4" component="h1">
-            💬 Chat {friendName && `with ${friendName}`}
-          </Typography>
+          <Box>
+            <Typography component="h1" sx={shellStyles.headingTitle}>
+              Chat {friendName && `· ${friendName}`}
+            </Typography>
+            <Typography sx={shellStyles.subText}>
+              End-to-end WebRTC with on-chain message proofs.
+            </Typography>
+          </Box>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          <AccountCircle color="primary" sx={{ mr: 1 }} />
-          <Typography variant="subtitle1">
-            <strong>{username}</strong>
-          </Typography>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 1.5 }}>
+          <AvatarAnimated3D address={account} size={44} />
+          <Box>
+            <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{username}</Typography>
+            <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: "'Space Mono', monospace" }}>
+              {account}
+            </Typography>
+          </Box>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, ml: 4 }}>
-          <Typography variant="caption" color="text.secondary">
-            <code>{account}</code>
-          </Typography>
-        </Box>
+
         {receiver && (
-          <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(138, 102, 255, 0.1)', borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              Chatting with: <strong>{friendName || 'Unknown'}</strong>
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-              {receiver}
-            </Typography>
+          <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography sx={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
+                Chatting with <span style={{ color: '#ffffff' }}>{friendName || 'Unknown peer'}</span>
+              </Typography>
+              <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: "'Space Mono', monospace" }}>
+                {receiver}
+              </Typography>
+            </Box>
+            <span style={shellStyles.statusPill(connected)}>
+              {connected ? 'P2P Live' : 'Chain Sync'}
+            </span>
           </Box>
         )}
 
         {error && (
-          <Paper 
-            elevation={0} 
-            sx={{ 
-              backgroundColor: 'error.light', 
-              color: 'error.contrastText',
-              p: 2, 
-              mb: 3,
-              borderRadius: 1 
-            }}
-          >
+          <Box sx={{ mt: 2, p: 1.5, borderRadius: 12, border: '1px solid rgba(255,60,0,0.6)', background: 'rgba(40,0,0,0.9)', fontSize: 13 }}>
             {error}
-          </Paper>
+          </Box>
         )}
 
-        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-          {/* Connection Status */}
-          {!connected ? (
-            <Paper 
-              sx={{ 
-                mb: 2, 
-                p: 1.5, 
-                backgroundColor: 'rgba(255, 152, 0, 0.2)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <Typography variant="body1" color="warning.main" fontWeight="bold">
-                ⏳ {isRetrying ? `Retrying connection (${connectionAttempts}/3)...` : 'Connecting to peer...'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                {connectionAttempts >= 3 
-                  ? '⚠️ P2P connection failed. Using blockchain sync instead (messages update every 5s)'
-                  : 'Messages will sync via blockchain if P2P connection fails'}
-              </Typography>
-              {connectionAttempts >= 3 && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="caption" color="info.main">
-                    💡 Brave browser users: Enable WebRTC in Settings → Shields → Advanced Controls
-                  </Typography>
-                </Box>
-              )}
-            </Paper>
-          ) : (
-            <Paper 
-              sx={{ 
-                mb: 2, 
-                p: 1.5, 
-                backgroundColor: 'success.light',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <Typography variant="body1" color="success.dark" fontWeight="bold">
-                ✓ Connected - Real-time P2P chat active!
-              </Typography>
-            </Paper>
-          )}
+        <Box sx={{ ...shellStyles.glassSection, background: 'transparent', border: 'none', padding: 0, marginTop: 2 }}>
+          {/* Compact connection pill */}
+          <Box sx={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: 1, 
+            px: 1.5, 
+            py: 1, 
+            mb: 2,
+            borderRadius: 999,
+            background: connected ? 'rgba(0,100,60,0.15)' : 'rgba(255,60,0,0.08)',
+            border: '1px solid ' + (connected ? 'rgba(0,200,120,0.4)' : 'rgba(255,60,0,0.25)'),
+          }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: connected ? 'rgba(0,255,120,0.9)' : '#ff3300' }} />
+            <Typography variant="caption" sx={{ color: connected ? 'rgba(160,255,210,0.95)' : '#ff3300', fontWeight: 600, fontSize: 12 }}>
+              {connected ? 'P2P Live' : (isRetrying ? `Retrying (${connectionAttempts}/3)…` : (connectionAttempts >= 3 ? 'Blockchain sync' : 'Connecting…'))}
+            </Typography>
+          </Box>
 
           {/* Selected file preview */}
           {selectedFile && (
@@ -1063,7 +1047,7 @@ function Chat({ walletAddress }) {
             style={{ display: 'none' }}
           />
 
-          <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
+          <Box sx={shellStyles.inputBar}>
             <TextField
               fullWidth
               multiline
@@ -1075,6 +1059,17 @@ function Chat({ walletAddress }) {
               onKeyPress={handleKeyPress}
               disabled={!receiver.trim() || loading}
               size="small"
+              InputProps={{
+                sx: {
+                  ...shellStyles.textField,
+                  '& fieldset': { borderColor: 'rgba(255,255,255,0.14)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255,60,0,0.4)' },
+                  '&.Mui-focused fieldset': { borderColor: 'rgba(255,60,0,0.8)' },
+                  '&.Mui-focused': {
+                    boxShadow: '0 0 0 1px rgba(255,60,0,0.8)',
+                  }
+                }
+              }}
             />
             <Tooltip title={connected ? "Attach file (P2P only)" : "File transfer requires P2P connection"}>
               <span>
@@ -1090,23 +1085,37 @@ function Chat({ walletAddress }) {
             </Tooltip>
             <Tooltip title={connected ? "Send via P2P + Blockchain" : "Send via Blockchain (slower but reliable)"}>
               <span>
-                <Button
-                  variant="contained"
-                  color="primary"
+                <button
+                  style={{
+                    ...shellStyles.primaryButton,
+                    opacity: !message.trim() || loading ? 0.5 : 1,
+                    cursor: !message.trim() || loading ? 'not-allowed' : 'pointer'
+                  }}
                   onClick={handleSendMessage}
                   disabled={!message.trim() || loading}
-                  sx={{ minWidth: 100, height: 40, alignSelf: 'flex-end' }}
                 >
-                  {loading ? <CircularProgress size={24} /> : <SendIcon />}
-                </Button>
+                  {loading ? <CircularProgress size={22} sx={{ color: '#ff3300' }} /> : <SendIcon sx={{ color: '#000000' }} />}
+                  <span
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent)',
+                      backgroundSize: '200% 100%',
+                      animation: 'shimmer 3s ease-in-out infinite',
+                      pointerEvents: 'none'
+                    }}
+                  />
+                </button>
               </span>
             </Tooltip>
           </Box>
-        </Paper>
+        </Box>
 
-        <Paper elevation={2} sx={{ p: 2 }}>
+        <Box sx={{ ...shellStyles.glassSection, mt: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">Messages</Typography>
+            <Typography sx={{ fontFamily: "'Space Mono', monospace", fontSize: 14, letterSpacing: '0.16em' }}>
+              Messages
+            </Typography>
             <Tooltip title="Refresh messages">
               <IconButton onClick={loadMessages} disabled={loading} size="small">
                 <RefreshIcon />
@@ -1115,134 +1124,145 @@ function Chat({ walletAddress }) {
           </Box>
 
           {messages.length > 0 ? (
-            <List sx={{ maxHeight: '60vh', overflow: 'auto' }}>
-              {messages.map((msg, i) => (
-                <React.Fragment key={msg.id || i}>
-                  <ListItem 
+            <List sx={{ maxHeight: '60vh', overflow: 'auto', p: 0 }}>
+              {messages.map((msg, i) => {
+                const isIncoming = msg.incoming;
+                return (
+                  <ListItem
+                    key={msg.id || i}
                     alignItems="flex-start"
                     sx={{
-                      bgcolor: msg.incoming ? 'action.hover' : 'background.paper',
-                      borderRadius: 1,
-                      mb: 1,
-                      flexDirection: msg.incoming ? 'row' : 'row-reverse',
-                      textAlign: msg.incoming ? 'left' : 'right'
+                      py: 1.5,
+                      px: 0,
+                      flexDirection: isIncoming ? 'row' : 'row-reverse',
                     }}
                   >
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: msg.incoming ? 'primary.main' : 'secondary.main' }}>
-                        {msg.incoming ? 
-                          (msg.from ? msg.from.substring(0, 2).toUpperCase() : '?') : 
-                          'You'}
-                      </Avatar>
+                    <ListItemAvatar sx={{ minWidth: 0, mr: isIncoming ? 1.5 : 0, ml: isIncoming ? 0 : 1.5 }}>
+                      <AvatarAnimated3D
+                        address={isIncoming ? (msg.from || receiver) : account}
+                        size={36}
+                      />
                     </ListItemAvatar>
-                    <ListItemText
-                      primary={
-                        <Box>
-                          <Typography 
-                            component="span" 
-                            variant="body2" 
-                            color="text.secondary"
-                            sx={{ display: 'block' }}
-                          >
-                            {msg.incoming ? 
-                              (msg.from ? `${msg.from.substring(0, 6)}...${msg.from.slice(-4)}` : 'Unknown') : 
-                              'You'}
-                            {' • '}
-                            {msg.time ? formatDistanceToNow(getMessageTime(msg)) : 'just now'}
-                          </Typography>
-                          
-                          {/* File display */}
-                          {msg.type === 'file' ? (
-                            <Box sx={{ mt: 1 }}>
-                              {msg.fileType?.startsWith('image/') && msg.fileUrl ? (
-                                <Box
-                                  component="img"
-                                  src={msg.fileUrl}
-                                  alt={msg.fileName}
-                                  sx={{
-                                    maxWidth: '300px',
-                                    maxHeight: '300px',
-                                    borderRadius: 1,
-                                    cursor: 'pointer'
-                                  }}
-                                  onClick={() => window.open(msg.fileUrl, '_blank')}
-                                />
-                              ) : (
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
-                                  {getFileIcon(msg.fileType)}
-                                  <Box sx={{ flex: 1 }}>
-                                    <Typography variant="body2">{msg.fileName}</Typography>
-                                    {msg.fileSize && (
-                                      <Typography variant="caption" color="text.secondary">
-                                        {formatFileSize(msg.fileSize)}
-                                      </Typography>
-                                    )}
-                                  </Box>
-                                  {msg.fileUrl && (
-                                    <Button
-                                      size="small"
-                                      variant="outlined"
-                                      href={msg.fileUrl}
-                                      download={msg.fileName}
-                                    >
-                                      Download
-                                    </Button>
-                                  )}
-                                </Box>
-                              )}
-                            </Box>
-                          ) : (
-                            <Typography variant="body1" sx={{ mt: 0.5, wordBreak: 'break-word' }}>
-                              {msg.content || 'Content via P2P (metadata only)'}
-                            </Typography>
-                          )}
-                        </Box>
-                      }
-                      secondary={
+                    <Box
+                      sx={{
+                        maxWidth: '75%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: isIncoming ? 'flex-start' : 'flex-end',
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          px: 2,
+                          py: 1.25,
+                          borderRadius: isIncoming ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
+                          background: isIncoming
+                            ? 'linear-gradient(135deg, rgba(255,60,0,0.12) 0%, rgba(255,40,0,0.06) 100%)'
+                            : 'linear-gradient(135deg, rgba(255,60,0,0.35) 0%, rgba(255,80,20,0.2) 100%)',
+                          border: isIncoming
+                            ? '1px solid rgba(255,60,0,0.25)'
+                            : '1px solid rgba(255,60,0,0.4)',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                        }}
+                      >
                         <Typography
-                          component="span"
                           variant="caption"
-                          color="text.secondary"
                           sx={{
                             display: 'block',
-                            fontFamily: 'monospace',
-                            wordBreak: 'break-word',
-                            mt: 0.5
+                            color: 'rgba(255,255,255,0.6)',
+                            fontSize: 11,
+                            mb: 0.5,
                           }}
                         >
-                          Hash: {msg.messageHash}
+                          {isIncoming ? (friendName || (msg.from ? `${msg.from.slice(0, 6)}...${msg.from.slice(-4)}` : 'Unknown')) : 'You'}
+                          {' · '}{msg.time ? formatDistanceToNow(getMessageTime(msg)) : 'now'}
                         </Typography>
-                      }
-                    />
+                        {msg.type === 'file' ? (
+                          <Box sx={{ mt: 0.5 }}>
+                            {msg.fileType?.startsWith('image/') && msg.fileUrl ? (
+                              <Box
+                                component="img"
+                                src={msg.fileUrl}
+                                alt={msg.fileName}
+                                sx={{
+                                  maxWidth: 260,
+                                  maxHeight: 260,
+                                  borderRadius: 2,
+                                  cursor: 'pointer',
+                                  display: 'block',
+                                }}
+                                onClick={() => window.open(msg.fileUrl, '_blank')}
+                              />
+                            ) : (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, bgcolor: 'rgba(0,0,0,0.25)', borderRadius: 2 }}>
+                                {getFileIcon(msg.fileType)}
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{msg.fileName}</Typography>
+                                  {msg.fileSize && (
+                                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                                      {formatFileSize(msg.fileSize)}
+                                    </Typography>
+                                  )}
+                                </Box>
+                                {msg.fileUrl && (
+                                  <Button size="small" variant="outlined" href={msg.fileUrl} download={msg.fileName} sx={{ borderColor: 'rgba(255,255,255,0.4)', color: '#fff' }}>
+                                    Download
+                                  </Button>
+                                )}
+                              </Box>
+                            )}
+                          </Box>
+                        ) : (
+                          <Typography variant="body1" sx={{ wordBreak: 'break-word', lineHeight: 1.5 }}>
+                            {msg.content || 'Content via P2P (metadata only)'}
+                          </Typography>
+                        )}
+                      </Box>
+                      {msg.messageHash && String(msg.messageHash).length > 4 && (
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontFamily: "'Space Mono', monospace",
+                            color: 'rgba(255,255,255,0.3)',
+                            fontSize: 10,
+                            mt: 0.5,
+                          }}
+                        >
+                          {String(msg.messageHash).slice(0, 10)}…{String(msg.messageHash).slice(-8)}
+                        </Typography>
+                      )}
+                    </Box>
                   </ListItem>
-                  {i < messages.length - 1 && <Divider variant="inset" component="li" />}
-                </React.Fragment>
-              ))}
+                );
+              })}
             </List>
           ) : (
             <Box sx={{ 
               textAlign: 'center', 
-              p: 4, 
-              color: 'text.secondary',
-              bgcolor: 'background.default',
-              borderRadius: 1
+              py: 6, 
+              px: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              color: 'rgba(255,255,255,0.5)',
             }}>
-              <Typography variant="body1" gutterBottom>
-                📭 No messages yet. Start the conversation!
+              <AvatarAnimated3D address={receiver || account || '0x0'} size={120} />
+              <Typography sx={{ mt: 3, fontFamily: "'Space Mono', monospace", fontSize: 16, color: 'rgba(255,255,255,0.9)' }}>
+                No messages yet
               </Typography>
-              <Typography variant="caption" color="textSecondary" gutterBottom display="block">
-                Messages are stored on blockchain + IPFS
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', mt: 1 }} display="block">
+                Say hi to start the conversation
               </Typography>
               {!connected && connectionAttempts >= 3 && (
                 <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 1 }}>
-                  ⚠️ Using blockchain sync mode (P2P connection unavailable)
+                  Using blockchain sync mode (P2P connection unavailable)
                 </Typography>
               )}
             </Box>
           )}
-        </Paper>
-      </Box>
-    </Box>
+        </Box>
+      </div>
+    </div>
   );
 }
 

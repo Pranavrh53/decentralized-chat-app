@@ -1,7 +1,8 @@
+// frontend/src/pages/Groups.js
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { initWeb3, getWeb3, getDynamicGasPrice } from '../utils/blockchain';
+import { initWeb3, getWeb3 } from '../utils/blockchain';
 import ChatMetadataABI from '../abis/ChatMetadata.json';
 import {
   Box,
@@ -11,8 +12,6 @@ import {
   Paper,
   List,
   ListItem,
-  ListItemText,
-  ListItemAvatar,
   Avatar,
   Dialog,
   DialogTitle,
@@ -20,16 +19,20 @@ import {
   DialogActions,
   Checkbox,
   FormControlLabel,
-  Divider,
   Chip,
   CircularProgress,
-  Alert
+  Alert,
+  IconButton
 } from '@mui/material';
 import {
   GroupAdd as GroupAddIcon,
   Chat as ChatIcon,
-  People as PeopleIcon
+  People as PeopleIcon,
+  Search as SearchIcon,
+  ContentCopy as CopyIcon,
+  Sort as SortIcon
 } from '@mui/icons-material';
+import { formatDistanceToNow } from 'date-fns';
 
 const Groups = ({ walletAddress, onLogout }) => {
   const navigate = useNavigate();
@@ -42,6 +45,12 @@ const Groups = ({ walletAddress, onLogout }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [contract, setContract] = useState(null);
+
+  // UI state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('recent'); // 'recent' | 'alpha'
+  const [copiedGroupId, setCopiedGroupId] = useState(null);
+
   const username = localStorage.getItem('username') || 'Anonymous';
 
   // Initialize contract
@@ -51,7 +60,7 @@ const Groups = ({ walletAddress, onLogout }) => {
         await initWeb3();
         const web3 = getWeb3();
         const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
-        
+
         if (CONTRACT_ADDRESS) {
           const contractInstance = new web3.eth.Contract(
             ChatMetadataABI.abi,
@@ -63,7 +72,7 @@ const Groups = ({ walletAddress, onLogout }) => {
         console.error('Error setting up contract:', error);
       }
     };
-    
+
     if (walletAddress) {
       setupContract();
     }
@@ -81,10 +90,10 @@ const Groups = ({ walletAddress, onLogout }) => {
     try {
       // Load friends first
       await loadFriends();
-      
+
       // Load groups from blockchain
       const groupIds = await contract.methods.getUserGroups(walletAddress).call();
-      
+
       const groupsData = await Promise.all(
         groupIds.map(async (groupId) => {
           const groupInfo = await contract.methods.getGroup(groupId).call();
@@ -97,32 +106,36 @@ const Groups = ({ walletAddress, onLogout }) => {
           };
         })
       );
-      
-      setGroups(groupsData);
-      console.log(`✅ Loaded ${groupsData.length} groups`);
-      
+
+      // Start with blockchain groups
+      let mergedGroups = [...groupsData];
+
       // Also load from localStorage (for offline/imported groups)
-      let localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]');
+      let localGroups = JSON.parse(
+        localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]'
+      );
       if (localGroups.length === 0) {
         localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress}`) || '[]');
       }
+
       if (localGroups.length > 0) {
-        // Merge with blockchain groups
-        const mergedGroups = [...groupsData];
-        localGroups.forEach(localGroup => {
-          if (!mergedGroups.find(g => g.id === localGroup.id)) {
+        localGroups.forEach((localGroup) => {
+          if (!mergedGroups.find((g) => g.id === localGroup.id)) {
             mergedGroups.push(localGroup);
           }
         });
-        setGroups(mergedGroups);
       }
-      
+
+      setGroups(mergedGroups);
+      console.log(`✅ Loaded ${mergedGroups.length} groups`);
     } catch (error) {
       console.error('Error loading groups:', error);
       setError('Failed to load groups');
-      
+
       // Fallback to localStorage
-      let localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]');
+      let localGroups = JSON.parse(
+        localStorage.getItem(`groups_${walletAddress.toLowerCase()}`) || '[]'
+      );
       if (localGroups.length === 0) {
         localGroups = JSON.parse(localStorage.getItem(`groups_${walletAddress}`) || '[]');
       }
@@ -138,7 +151,9 @@ const Groups = ({ walletAddress, onLogout }) => {
       const friendAddresses = await contract.methods.getFriends(walletAddress).call();
       const friendsData = await Promise.all(
         friendAddresses.map(async (friendAddress) => {
-          const friendData = await contract.methods.getFriend(walletAddress, friendAddress).call();
+          const friendData = await contract.methods
+            .getFriend(walletAddress, friendAddress)
+            .call();
           return {
             address: friendData.friendAddress.toLowerCase(),
             name: friendData.name,
@@ -146,28 +161,30 @@ const Groups = ({ walletAddress, onLogout }) => {
           };
         })
       );
-      
-      const activeFriends = friendsData.filter(f => f.exists);
-      
+
+      const activeFriends = friendsData.filter((f) => f.exists);
+
       // Load from localStorage (imported friends)
       const normalizedAddress = walletAddress.toLowerCase();
-      // Try both normalized and original case keys for backward compatibility
-      let localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      let localFriends = JSON.parse(
+        localStorage.getItem(`friends_${normalizedAddress}`) || '[]'
+      );
       if (localFriends.length === 0) {
         localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
       }
-      
+
       // Merge friends
       const mergedFriendsMap = new Map();
-      activeFriends.forEach(f => mergedFriendsMap.set(f.address, f));
-      localFriends.forEach(f => mergedFriendsMap.set(f.address.toLowerCase(), f));
-      
+      activeFriends.forEach((f) => mergedFriendsMap.set(f.address, f));
+      localFriends.forEach((f) => mergedFriendsMap.set(f.address.toLowerCase(), f));
+
       setFriends(Array.from(mergedFriendsMap.values()));
     } catch (error) {
       console.error('Error loading friends:', error);
-      // Fallback to localStorage
       const normalizedAddress = walletAddress.toLowerCase();
-      let localFriends = JSON.parse(localStorage.getItem(`friends_${normalizedAddress}`) || '[]');
+      let localFriends = JSON.parse(
+        localStorage.getItem(`friends_${normalizedAddress}`) || '[]'
+      );
       if (localFriends.length === 0) {
         localFriends = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
       }
@@ -177,12 +194,12 @@ const Groups = ({ walletAddress, onLogout }) => {
 
   const handleCreateGroup = async () => {
     setError('');
-    
+
     if (!newGroupName.trim()) {
       setError('Please enter a group name');
       return;
     }
-    
+
     if (selectedMembers.length === 0) {
       setError('Please select at least one member');
       return;
@@ -191,25 +208,22 @@ const Groups = ({ walletAddress, onLogout }) => {
     setLoading(true);
     try {
       console.log('Creating group...');
-      
-      const gasPrice = await getDynamicGasPrice(1.3);
-      
+
       // Create group on blockchain
       const tx = await contract.methods
         .createGroup(newGroupName.trim(), newGroupDescription.trim(), selectedMembers)
-        .send({ from: walletAddress, gasPrice });
+        .send({ from: walletAddress });
 
       console.log('Group created:', tx);
-      
+
       // Reload groups
       await loadGroupsAndFriends();
-      
+
       // Reset form
       setNewGroupName('');
       setNewGroupDescription('');
       setSelectedMembers([]);
       setOpenCreateDialog(false);
-      
     } catch (err) {
       console.error('Create group error:', err);
       setError(`Failed to create group: ${err.message}`);
@@ -219,9 +233,9 @@ const Groups = ({ walletAddress, onLogout }) => {
   };
 
   const handleMemberToggle = (address) => {
-    setSelectedMembers(prev => {
+    setSelectedMembers((prev) => {
       if (prev.includes(address)) {
-        return prev.filter(addr => addr !== address);
+        return prev.filter((addr) => addr !== address);
       } else {
         return [...prev, address];
       }
@@ -232,95 +246,219 @@ const Groups = ({ walletAddress, onLogout }) => {
     navigate(`/group-chat/${group.id}`, { state: { group } });
   };
 
+  const handleCopyGroupId = (groupId, event) => {
+    event.stopPropagation();
+    if (navigator.clipboard && groupId != null) {
+      navigator.clipboard.writeText(String(groupId)).then(() => {
+        setCopiedGroupId(String(groupId));
+        setTimeout(() => setCopiedGroupId(null), 1500);
+      });
+    }
+  };
+
   const getGroupEmoji = (name) => {
     const emojis = ['👥', '🎉', '💼', '🎮', '📚', '🎵', '⚽', '🍕', '🌟', '🚀'];
-    const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % emojis.length;
+    const index =
+      name
+        .split('')
+        .reduce((acc, char) => acc + char.charCodeAt(0), 0) % emojis.length;
     return emojis[index];
   };
+
+  // Derived data for UI
+  const filteredAndSortedGroups = (() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    let list = groups.map((g) => {
+      const memberCount = g.members?.length || 0;
+      const createdAtDate = g.createdAt ? new Date(g.createdAt) : null;
+
+      // How many of your friends are in this group
+      const friendMembers = (g.members || []).filter((addr) =>
+        friends.some(
+          (f) => f.address?.toLowerCase() === String(addr).toLowerCase()
+        )
+      );
+
+      return {
+        ...g,
+        memberCount,
+        createdAtDate,
+        friendMembersCount: friendMembers.length
+      };
+    });
+
+    if (term) {
+      list = list.filter((g) => {
+        const name = (g.name || '').toLowerCase();
+        const desc = (g.description || '').toLowerCase();
+        return name.includes(term) || desc.includes(term);
+      });
+    }
+
+    list.sort((a, b) => {
+      if (sortBy === 'alpha') {
+        return (a.name || '').localeCompare(b.name || '');
+      }
+      // recent: newest first
+      const ta = a.createdAtDate ? a.createdAtDate.getTime() : 0;
+      const tb = b.createdAtDate ? b.createdAtDate.getTime() : 0;
+      return tb - ta;
+    });
+
+    return list;
+  })();
+
+  const totalGroups = groups.length;
+  const totalMembers = groups.reduce(
+    (acc, g) => acc + (g.members?.length || 0),
+    0
+  );
+  const groupsWithFriends = groups.filter((g) =>
+    (g.members || []).some((addr) =>
+      friends.some(
+        (f) => f.address?.toLowerCase() === String(addr).toLowerCase()
+      )
+    )
+  ).length;
 
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #2d1b4e 100%)',
+      background: '#000000'
     },
     content: {
-      padding: '40px',
+      padding: '96px 24px 40px',
       maxWidth: '1200px',
       margin: '0 auto'
     },
     header: {
+      marginBottom: '32px',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: '30px'
+      gap: '16px'
     },
     title: {
-      color: '#ffffff',
+      fontFamily: "Space Mono', monospace",
       fontSize: '32px',
-      fontWeight: '700',
+      fontWeight: 600,
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
+      color: '#ffffff',
+      marginBottom: '8px',
       display: 'flex',
       alignItems: 'center',
-      gap: '15px'
+      gap: '10px'
+    },
+    subtitle: {
+      fontSize: '14px',
+      color: 'rgba(255,255,255,0.4)',
+       fontFamily: "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
     },
     createBtn: {
-      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
-      color: 'white',
-      border: 'none',
+      background: '#ffffff',
+      color: '#000000',
       padding: '12px 30px',
-      borderRadius: '10px',
-      cursor: 'pointer',
-      fontSize: '16px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px',
-      boxShadow: '0 4px 15px rgba(138, 102, 255, 0.4)',
-      transition: 'all 0.3s ease'
+      borderRadius: '999px',
+      fontWeight: 600,
+      fontSize: '14px',
+      textTransform: 'none',
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)'
     },
-    groupsList: {
+    statsRow: {
+      display: 'flex',
+      gap: 16,
+      marginBottom: 24,
+      flexWrap: 'wrap'
+    },
+    statCard: {
+      flex: 1,
+      minWidth: 220,
+      padding: 16,
+      borderRadius: 16,
+      background: 'rgba(0,0,0,0.55)',
+      border: '1px solid rgba(255,40,0,0.15)',
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
+      backdropFilter: 'blur(20px)'
+    },
+    filtersRow: {
+      display: 'flex',
+      gap: 16,
+      marginBottom: 16,
+      alignItems: 'center',
+      flexWrap: 'wrap'
+    },
+    searchField: {
+      flex: 1,
+      minWidth: 220
+    },
+    sortButton: {
+      borderColor: 'rgba(255,60,0,0.5)',
+      color: '#ff8c42',
+      borderRadius: '12px',
+      textTransform: 'none',
+      fontWeight: 600
+    },
+    groupsGrid: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
       gap: '20px',
-      marginTop: '20px'
+      marginTop: '8px'
     },
     groupCard: {
-      background: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
-      border: '1px solid rgba(138, 102, 255, 0.2)',
-      borderRadius: '15px',
-      padding: '20px',
+      background: 'rgba(0,0,0,0.6)',
+      borderRadius: 18,
+      border: '1px solid rgba(255,40,0,0.18)',
+      padding: 18,
       cursor: 'pointer',
-      transition: 'all 0.3s ease',
-      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+      boxShadow: '0 30px 80px rgba(0,0,0,0.9)',
+      transition: 'all 0.25s ease'
     },
-    groupEmoji: {
-      fontSize: '48px',
-      marginBottom: '10px'
+    groupHeader: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 8
+    },
+    groupEmojiWrap: {
+      width: 46,
+      height: 46,
+      borderRadius: 999,
+      background:
+        'linear-gradient(135deg, rgba(255,140,66,0.28) 0%, rgba(255,60,0,0.18) 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 26,
+      boxShadow: '0 6px 18px rgba(0,0,0,0.8)'
     },
     groupName: {
       color: '#ffffff',
-      fontSize: '20px',
-      fontWeight: '600',
-      marginBottom: '8px'
+      fontSize: '18px',
+      fontWeight: 600
     },
     groupDescription: {
       color: '#b8b8d1',
-      fontSize: '14px',
-      marginBottom: '15px',
-      minHeight: '40px'
+      fontSize: '13px',
+      marginTop: 4,
+      minHeight: '38px'
     },
-    groupInfo: {
+    groupMetaRow: {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingTop: '15px',
-      borderTop: '1px solid rgba(138, 102, 255, 0.1)'
+      marginTop: 12
     },
-    memberCount: {
-      color: '#8a66ff',
-      fontSize: '14px',
+    metaChips: {
       display: 'flex',
-      alignItems: 'center',
-      gap: '5px'
+      flexWrap: 'wrap',
+      gap: 6
+    },
+    emptyState: {
+      textAlign: 'center',
+      padding: '60px 20px',
+      color: 'rgba(255,255,255,0.6)'
     },
     dialogPaper: {
       background: 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)',
@@ -331,92 +469,292 @@ const Groups = ({ walletAddress, onLogout }) => {
     friendItem: {
       background: 'rgba(138, 102, 255, 0.05)',
       borderRadius: '10px',
-      marginBottom: '8px',
-      '&:hover': {
-        background: 'rgba(138, 102, 255, 0.1)'
-      }
-    },
-    emptyState: {
-      textAlign: 'center',
-      padding: '60px 20px',
-      color: '#b8b8d1'
+      marginBottom: '8px'
     }
   };
 
   return (
     <Box style={styles.container}>
-      <Navbar username={username} walletAddress={walletAddress} onLogout={onLogout} />
-      
+      <Navbar
+        username={username}
+        walletAddress={walletAddress}
+        onLogout={onLogout}
+      />
+
       <Box style={styles.content}>
+        {/* HEADER */}
         <Box style={styles.header}>
-          <Typography style={styles.title}>
-            <PeopleIcon style={{ fontSize: '40px', color: '#8a66ff' }} />
-            My Groups
-          </Typography>
+          <Box>
+            <Typography style={styles.title}>
+              <PeopleIcon sx={{ color: '#ff8c42' }} />
+              GROUPS
+              {contract && (
+                <Chip
+                  label="ON-CHAIN"
+                  size="small"
+                  sx={{
+                    ml: 1.5,
+                    fontFamily: "'Space Mono', monospace",
+                    letterSpacing: '0.16em',
+                    backgroundColor: 'rgba(0,0,0,0.85)',
+                    color: '#ff3300',
+                    borderRadius: '999px',
+                    border: '1px solid rgba(255,60,0,0.7)',
+                    fontWeight: 600,
+                    height: 24
+                  }}
+                />
+              )}
+            </Typography>
+            <Typography style={styles.subtitle}>
+              Curate decentralized rooms with your friends. Messages live on-chain + IPFS.
+            </Typography>
+          </Box>
+
           <Button
-            style={styles.createBtn}
+            variant="contained"
+            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <GroupAddIcon />}
             onClick={() => setOpenCreateDialog(true)}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+            sx={styles.createBtn}
+            disabled={loading || !contract}
           >
-            <GroupAddIcon />
             Create Group
           </Button>
         </Box>
 
         {error && (
-          <Alert severity="error" style={{ marginBottom: '20px' }}>
+          <Alert
+            severity="error"
+            sx={{
+              mb: 2,
+              backgroundColor: 'rgba(239,68,68,0.16)',
+              color: '#ef4444',
+              '& .MuiAlert-icon': { color: '#ef4444' }
+            }}
+          >
             {error}
           </Alert>
         )}
 
+        
+
+
+        {/* FILTERS */}
+        {totalGroups > 0 && (
+          <Box style={styles.filtersRow}>
+            <Box
+              sx={{
+                position: 'relative',
+                flex: 1,
+                minWidth: 220
+              }}
+            >
+              <SearchIcon
+                sx={{
+                  position: 'absolute',
+                  left: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#ff3300',
+                  fontSize: 20
+                }}
+              />
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search groups by name or description..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                sx={{
+                  ...styles.searchField,
+                  '& .MuiOutlinedInput-root': {
+                    pl: '36px',
+                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    borderRadius: '12px',
+                    '& fieldset': {
+                      borderColor: 'rgba(255,40,0,0.25)'
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(255,60,0,0.5)'
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: 'rgba(255,60,0,0.8)'
+                    }
+                  },
+                  '& .MuiInputBase-input': {
+                    color: '#ffffff',
+                    fontSize: 14
+                  }
+                }}
+              />
+            </Box>
+
+            <Button
+              variant="outlined"
+              startIcon={<SortIcon />}
+              onClick={() =>
+                setSortBy((prev) => (prev === 'recent' ? 'alpha' : 'recent'))
+              }
+              sx={styles.sortButton}
+            >
+              Sort: {sortBy === 'recent' ? 'Newest' : 'A–Z'}
+            </Button>
+          </Box>
+        )}
+
+        {/* GROUPS LIST / EMPTY STATES */}
         {loading && !groups.length ? (
           <Box style={styles.emptyState}>
-            <CircularProgress style={{ color: '#8a66ff' }} />
-            <Typography style={{ marginTop: '20px' }}>Loading groups...</Typography>
+            <CircularProgress style={{ color: '#ff8c42' }} />
+            <Typography sx={{ mt: 2 }}>Loading groups...</Typography>
           </Box>
         ) : groups.length === 0 ? (
           <Box style={styles.emptyState}>
-            <Typography variant="h5" style={{ marginBottom: '10px' }}>No groups yet</Typography>
-            <Typography>Create your first serverless group!</Typography>
-            <Typography style={{ marginTop: '20px', fontSize: '64px' }}>👥</Typography>
+            <Typography
+              variant="h5"
+              sx={{ mb: 1, fontFamily: "'Space Mono', monospace", letterSpacing: '0.16em' }}
+            >
+              NO GROUPS YET
+            </Typography>
+            <Typography sx={{ mb: 2 }}>
+              Create your first decentralized room with your on‑chain friends.
+            </Typography>
+            <Typography sx={{ fontSize: 72, mb: 3 }}>👥</Typography>
+            <Button
+              variant="contained"
+              startIcon={<GroupAddIcon />}
+              sx={styles.createBtn}
+              onClick={() => setOpenCreateDialog(true)}
+              disabled={loading || !contract}
+            >
+              Create your first group
+            </Button>
+          </Box>
+        ) : filteredAndSortedGroups.length === 0 ? (
+          <Box style={styles.emptyState}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              No groups match your search
+            </Typography>
+            <Typography variant="body2">
+              Try adjusting your search term or sort order.
+            </Typography>
           </Box>
         ) : (
-          <Box style={styles.groupsList}>
-            {groups.map((group) => (
-              <Paper 
-                key={group.id} 
+          <Box style={styles.groupsGrid}>
+            {filteredAndSortedGroups.map((group) => (
+              <Paper
+                key={group.id}
                 style={styles.groupCard}
                 onClick={() => handleOpenGroupChat(group)}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-5px)';
-                  e.currentTarget.style.boxShadow = '0 8px 30px rgba(138, 102, 255, 0.4)';
+                  e.currentTarget.style.transform = 'translateY(-4px)';
+                  e.currentTarget.style.borderColor = 'rgba(255,60,0,0.4)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.3)';
+                  e.currentTarget.style.borderColor = 'rgba(255,40,0,0.18)';
                 }}
               >
-                <Box style={styles.groupEmoji}>{getGroupEmoji(group.name)}</Box>
-                <Typography style={styles.groupName}>{group.name}</Typography>
-                <Typography style={styles.groupDescription}>
-                  {group.description || 'No description'}
-                </Typography>
-                <Box style={styles.groupInfo}>
-                  <Typography style={styles.memberCount}>
-                    <PeopleIcon style={{ fontSize: '18px' }} />
-                    {group.members?.length || 0} members
-                  </Typography>
-                  <ChatIcon style={{ color: '#8a66ff', fontSize: '20px' }} />
+                <Box style={styles.groupHeader}>
+                  <Box style={styles.groupEmojiWrap}>
+                    <span>{getGroupEmoji(group.name || '')}</span>
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography style={styles.groupName}>
+                      {group.name || 'Unnamed Group'}
+                    </Typography>
+                    {group.createdAtDate && (
+                      <Typography
+                        sx={{
+                          fontSize: 11,
+                          color: 'rgba(255,255,255,0.5)',
+                          fontFamily: "'Space Mono', monospace"
+                        }}
+                      >
+                        Created{' '}
+                        {formatDistanceToNow(group.createdAtDate, {
+                          addSuffix: true
+                        })}
+                      </Typography>
+                    )}
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => handleCopyGroupId(group.id, e)}
+                    sx={{ color: '#b8b8d1' }}
+                  >
+                    <CopyIcon fontSize="small" />
+                  </IconButton>
                 </Box>
+
+                <Typography style={styles.groupDescription}>
+                  {group.description || 'No description set for this group.'}
+                </Typography>
+
+                <Box style={styles.groupMetaRow}>
+                  <Box style={styles.metaChips}>
+                    <Chip
+                      icon={<PeopleIcon sx={{ fontSize: 16 }} />}
+                      label={`${group.memberCount} member${
+                        group.memberCount === 1 ? '' : 's'
+                      }`}
+                      size="small"
+                      sx={{
+                        backgroundColor: 'rgba(255,140,66,0.18)',
+                        color: '#ff8c42',
+                        fontSize: 11,
+                        height: 22
+                      }}
+                    />
+                    {group.friendMembersCount > 0 && (
+                      <Chip
+                        label={`${group.friendMembersCount} friend${
+                          group.friendMembersCount === 1 ? '' : 's'
+                        } here`}
+                        size="small"
+                        sx={{
+                          backgroundColor: 'rgba(16,185,129,0.18)',
+                          color: '#10b981',
+                          fontSize: 11,
+                          height: 22
+                        }}
+                      />
+                    )}
+                  </Box>
+                  <IconButton
+                    size="small"
+                    sx={{
+                      color: '#ffffff',
+                      backgroundColor: 'rgba(255,140,66,0.18)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255,140,66,0.3)'
+                      }
+                    }}
+                  >
+                    <ChatIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+
+                {copiedGroupId && String(copiedGroupId) === String(group.id) && (
+                  <Typography
+                    sx={{
+                      mt: 1,
+                      fontSize: 11,
+                      color: '#4ade80',
+                      fontFamily: "'Space Mono', monospace",
+                    }}
+                  >
+                    Group ID copied
+                  </Typography>
+                )}
               </Paper>
             ))}
           </Box>
         )}
 
         {/* Create Group Dialog */}
-        <Dialog 
-          open={openCreateDialog} 
+        <Dialog
+          open={openCreateDialog}
           onClose={() => setOpenCreateDialog(false)}
           PaperProps={{ style: styles.dialogPaper }}
           maxWidth="sm"
@@ -451,20 +789,33 @@ const Groups = ({ walletAddress, onLogout }) => {
               InputLabelProps={{ style: { color: '#b8b8d1' } }}
               InputProps={{ style: { color: '#ffffff' } }}
             />
-            
-            <Typography style={{ color: '#ffffff', marginTop: '20px', marginBottom: '10px', fontWeight: '600' }}>
+
+            <Typography
+              style={{
+                color: '#ffffff',
+                marginTop: '20px',
+                marginBottom: '10px',
+                fontWeight: '600'
+              }}
+            >
               Select Members from Friends:
             </Typography>
-            
+
             {friends.length === 0 ? (
-              <Typography style={{ color: '#b8b8d1', padding: '20px', textAlign: 'center' }}>
+              <Typography
+                style={{
+                  color: '#b8b8d1',
+                  padding: '20px',
+                  textAlign: 'center'
+                }}
+              >
                 No friends available. Add friends first!
               </Typography>
             ) : (
               <List style={{ maxHeight: '300px', overflow: 'auto' }}>
                 {friends.map((friend) => (
-                  <ListItem 
-                    key={friend.address} 
+                  <ListItem
+                    key={friend.address}
                     style={styles.friendItem}
                     button
                     onClick={() => handleMemberToggle(friend.address)}
@@ -478,12 +829,26 @@ const Groups = ({ walletAddress, onLogout }) => {
                       }
                       label={
                         <Box display="flex" alignItems="center" gap="10px">
-                          <Avatar style={{ background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)' }}>
-                            {friend.name.substring(0, 2).toUpperCase()}
+                          <Avatar
+                            style={{
+                              background:
+                                'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)'
+                            }}
+                          >
+                            {friend.name
+                              ? friend.name.substring(0, 2).toUpperCase()
+                              : 'FR'}
                           </Avatar>
                           <Box>
-                            <Typography style={{ color: '#ffffff' }}>{friend.name}</Typography>
-                            <Typography style={{ color: '#b8b8d1', fontSize: '12px' }}>
+                            <Typography style={{ color: '#ffffff' }}>
+                              {friend.name || 'Friend'}
+                            </Typography>
+                            <Typography
+                              style={{
+                                color: '#b8b8d1',
+                                fontSize: '12px'
+                              }}
+                            >
                               {friend.address.substring(0, 10)}...
                             </Typography>
                           </Box>
@@ -494,7 +859,7 @@ const Groups = ({ walletAddress, onLogout }) => {
                 ))}
               </List>
             )}
-            
+
             {selectedMembers.length > 0 && (
               <Box mt={2}>
                 <Typography style={{ color: '#8a66ff', fontSize: '14px' }}>
@@ -504,7 +869,7 @@ const Groups = ({ walletAddress, onLogout }) => {
             )}
           </DialogContent>
           <DialogActions style={{ padding: '20px' }}>
-            <Button 
+            <Button
               onClick={() => setOpenCreateDialog(false)}
               style={{ color: '#b8b8d1' }}
             >
@@ -514,13 +879,18 @@ const Groups = ({ walletAddress, onLogout }) => {
               onClick={handleCreateGroup}
               disabled={loading || !newGroupName.trim() || selectedMembers.length === 0}
               style={{
-                background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+                background:
+                  'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
                 color: 'white',
                 padding: '8px 24px',
                 borderRadius: '8px'
               }}
             >
-              {loading ? <CircularProgress size={24} style={{ color: 'white' }} /> : 'Create'}
+              {loading ? (
+                <CircularProgress size={24} style={{ color: 'white' }} />
+              ) : (
+                'Create'
+              )}
             </Button>
           </DialogActions>
         </Dialog>

@@ -25,10 +25,18 @@ const ThermodynamicGrid = ({ resolution = 25, coolingFactor = 0.98, style }) => 
 
     const mouse = { x: -1000, y: -1000, prevX: -1000, prevY: -1000, active: false };
 
-    // Black & white thermal gradient
+    // Red thermal gradient
     const getThermalColor = (t) => {
-      const v = Math.min(255, Math.max(0, Math.round(t * 255)));
-      return `rgb(${v}, ${v}, ${v})`;
+      if (t < 0.3) {
+        const v = t / 0.3;
+        return `rgb(${Math.round(80 * v)}, 0, 0)`;
+      } else if (t < 0.6) {
+        const v = (t - 0.3) / 0.3;
+        return `rgb(${Math.round(80 + 120 * v)}, ${Math.round(20 * v)}, 0)`;
+      } else {
+        const v = (t - 0.6) / 0.4;
+        return `rgb(${Math.round(200 + 55 * v)}, ${Math.round(20 + 80 * v)}, ${Math.round(30 * v)})`;
+      }
     };
 
     const resize = () => {
@@ -105,7 +113,7 @@ const ThermodynamicGrid = ({ resolution = 25, coolingFactor = 0.98, style }) => 
           } else if (c % 2 === 0 && r % 2 === 0) {
             const x = c * resolution;
             const y = r * resolution;
-            ctx.fillStyle = "#111111";
+            ctx.fillStyle = "#1a0000";
             ctx.fillRect(x + resolution / 2 - 1, y + resolution / 2 - 1, 2, 2);
           }
         }

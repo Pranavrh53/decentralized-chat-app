@@ -213,17 +213,12 @@ export const storeMessageMetadata = async (sender, receiver, messageHash, ipfsHa
       from
     });
 
-    // Get dynamic gas price
-    const gasPrice = await getDynamicGasPrice(1.3); // 30% higher than network average
-
-    // Store the message hash and IPFS hash on the blockchain
+    // Let the provider / wallet estimate gas and fees automatically.
+    // This avoids edge cases where a custom gasPrice resolves to 0
+    // on some RPCs and causes MetaMask to display a 0 fee.
     const tx = await contract.methods
       .storeMetadata(receiver, messageHash, ipfsHash)
-      .send({ 
-        from, 
-        gas: 500000,
-        gasPrice: gasPrice
-      });
+      .send({ from });
 
     console.log('Transaction successful:', tx.transactionHash);
     return tx.transactionHash;

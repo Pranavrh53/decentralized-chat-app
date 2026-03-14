@@ -55,7 +55,7 @@ const Login = ({ setWalletAddress }) => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
         *{box-sizing:border-box}
 
         @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -68,6 +68,8 @@ const Login = ({ setWalletAddress }) => {
           display:flex; width:100%; min-height:100vh;
           font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           background:#000;
+          position:relative;
+          overflow:hidden;
         }
 
         /* ══════ LEFT PANEL — form + heatmap bg ══════ */
@@ -75,6 +77,8 @@ const Login = ({ setWalletAddress }) => {
           width:50%; position:relative; overflow:hidden;
           display:flex; align-items:center; justify-content:center;
           padding:48px 40px;
+          background:transparent;
+          z-index:2;
         }
 
         /* glass card on left */
@@ -83,10 +87,10 @@ const Login = ({ setWalletAddress }) => {
           width:100%; max-width:420px;
           background:rgba(0,0,0,.55);
           backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
-          border:1px solid rgba(255,255,255,.08);
+          border:1px solid rgba(255,40,0,.15);
           border-radius:24px;
           padding:44px 36px;
-          box-shadow:0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.03) inset;
+          box-shadow:0 30px 80px rgba(0,0,0,.7), 0 0 40px rgba(180,20,0,.08);
           animation:fadeUp .7s ease forwards;
         }
 
@@ -97,11 +101,17 @@ const Login = ({ setWalletAddress }) => {
           display:flex;align-items:center;justify-content:center;font-size:22px;
           box-shadow:0 4px 20px rgba(255,255,255,.15);
         }
-        .lg-logo-text{font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px}
+        .lg-logo-text{
+          font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px;
+          font-family:'Space Mono',monospace;
+        }
 
         /* heading */
         .lg-heading{margin-bottom:4px;opacity:0;animation:fadeUp .5s ease forwards .2s}
-        .lg-heading h1{font-size:26px;font-weight:700;color:#fff;margin:0;letter-spacing:-.5px}
+        .lg-heading h1{
+          font-size:26px;font-weight:700;color:#fff;margin:0;letter-spacing:-.5px;
+          font-family:'Space Mono',monospace;
+        }
         .lg-heading p{font-size:14px;color:rgba(255,255,255,.4);margin:8px 0 0;line-height:1.6}
 
         /* connected */
@@ -129,7 +139,11 @@ const Login = ({ setWalletAddress }) => {
           background:rgba(255,255,255,.04);color:#fff;
         }
         .lg-input::placeholder{color:rgba(255,255,255,.18)}
-        .lg-input:focus{border-color:rgba(255,255,255,.3);box-shadow:0 0 0 3px rgba(255,255,255,.05);background:rgba(255,255,255,.07)}
+        .lg-input:focus{
+          border-color:rgba(255,60,0,.4);
+          box-shadow:0 0 0 3px rgba(200,30,0,.1);
+          background:rgba(255,255,255,.07);
+        }
         .lg-input.mono{font-family:'SF Mono',Consolas,Monaco,monospace;font-size:14px}
 
         /* primary btn */
@@ -152,11 +166,15 @@ const Login = ({ setWalletAddress }) => {
         /* outline btn */
         .lg-btn-outline{
           width:100%;padding:14px 24px;font-size:15px;font-weight:600;font-family:inherit;
-          color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:12px;cursor:pointer;
+          color:#fff;border:1px solid rgba(255,60,0,.35);border-radius:12px;cursor:pointer;
           transition:all .3s ease;background:transparent;
           display:flex;align-items:center;justify-content:center;gap:10px;
         }
-        .lg-btn-outline:hover{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.04);transform:translateY(-1px)}
+        .lg-btn-outline:hover{
+          border-color:rgba(255,80,0,.6);
+          background:rgba(200,20,0,.08);
+          transform:translateY(-1px);
+        }
 
         /* divider */
         .lg-divider{display:flex;align-items:center;margin:20px 0;opacity:0;animation:fadeUp .5s ease forwards .55s}
@@ -185,12 +203,13 @@ const Login = ({ setWalletAddress }) => {
         .lg-right{
           width:50%; position:relative; overflow:hidden;
           display:flex; align-items:center; justify-content:center;
-          background:#000;
+          background:transparent;
+          z-index:2;
         }
         .lg-right img{
           width:75%; max-width:420px;
-          filter:invert(1) drop-shadow(0 0 60px rgba(255,255,255,.08));
-          opacity:.85;
+          filter:drop-shadow(0 0 80px rgba(200,30,0,.2));
+          opacity:.9;
         }
         .lg-right-overlay{
           position:absolute;inset:0;
@@ -200,12 +219,19 @@ const Login = ({ setWalletAddress }) => {
         .lg-right-content{position:absolute;bottom:50px;left:48px;right:48px;z-index:2}
         .lg-right-badge{
           display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
-          border-radius:50px;background:rgba(255,255,255,.06);
-          border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.6);
+          border-radius:50px;background:rgba(200,20,0,.12);
+          border:1px solid rgba(255,60,0,.2);color:rgba(255,255,255,.7);
           font-size:12px;font-weight:600;letter-spacing:.5px;margin-bottom:16px;
+          font-family:'Space Mono',monospace;
         }
-        .lg-right-title{font-size:28px;font-weight:700;color:#fff;line-height:1.3;margin:0 0 10px;letter-spacing:-.5px}
+        .lg-right-title{
+          font-size:28px;font-weight:700;color:#fff;line-height:1.3;margin:0 0 10px;letter-spacing:-.5px;
+          font-family:'Space Mono',monospace;
+        }
         .lg-right-desc{font-size:14px;color:rgba(255,255,255,.35);line-height:1.6;margin:0;max-width:380px}
+
+        /* connected dot override for red glow */
+        .lg-connected-dot{background:#ff3300;box-shadow:0 0 8px rgba(255,50,0,.7);}
 
         /* responsive */
         @media(max-width:900px){
@@ -216,10 +242,10 @@ const Login = ({ setWalletAddress }) => {
       `}</style>
 
       <div className="lg-root">
-        {/* ══════ LEFT — Heatmap + Form ══════ */}
-        <div className="lg-left">
-          <ThermodynamicGrid resolution={12} coolingFactor={0.96} />
+        <ThermodynamicGrid resolution={12} coolingFactor={0.96} />
 
+        {/* ══════ LEFT — Form Card ══════ */}
+        <div className="lg-left">
           <div className="lg-card">
             <div className="lg-logo">
               <div className="lg-logo-icon">🔐</div>

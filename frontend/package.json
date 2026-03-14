@@ -16,6 +16,7 @@
     "crypto-js": "^4.2.0",
     "date-fns": "^4.1.0",
     "gun": "^0.2020.1241",
+    "lottie-react": "^2.4.1",
     "process": "^0.11.10",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -24,6 +25,7 @@
     "readable-stream": "^3.6.0",
     "simple-peer": "^9.11.1",
     "stream-browserify": "^3.0.0",
+    "three": "^0.183.2",
     "util": "^0.12.5",
     "web-vitals": "^2.1.4",
     "web3": "^4.16.0"

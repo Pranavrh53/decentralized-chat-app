@@ -7,6 +7,7 @@ import Friends from "./pages/Friends";
 import Groups from "./pages/Groups";
 import GroupChat from "./pages/GroupChat";
 import Calls from "./pages/Calls";
+import Profile from "./pages/Profile";
 import { initWeb3 } from "./utils/blockchain";
 import { migrateLocalStorageKeys } from "./utils/storageHelper";
 
@@ -141,6 +142,16 @@ function App() {
           element={
             walletAddress ? (
               <Calls walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            walletAddress ? (
+              <Profile walletAddress={walletAddress} onLogout={handleLogout} />
             ) : (
               <Navigate to="/" />
             )
