@@ -10,6 +10,8 @@ import {
   loadChatHistory
 } from "../utils/blockchain";
 import { uploadToIPFS, retrieveFromIPFS } from "../utils/ipfs";
+import { getChatKey, getFriendsKey } from "../utils/storageHelper";
+import { saveMessage, loadMessagesFromAllSources } from "../utils/messageStore";
 import { 
   Box, 
   TextField, 
@@ -153,12 +155,9 @@ function Chat({ walletAddress }) {
       setReceiver(addressString);
       localStorage.setItem('lastChatPartner', addressString);
       
-      // Get friend's name from friends list
-      // Try both original case and lowercase keys for backward compatibility
-      let friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress}`) || '[]');
-      if (friendsList.length === 0) {
-        friendsList = JSON.parse(localStorage.getItem(`friends_${walletAddress.toLowerCase()}`) || '[]');
-      }
+      // Get friend's name from friends list (always use normalized key)
+      const friendsKey = getFriendsKey(walletAddress);
+      const friendsList = JSON.parse(localStorage.getItem(friendsKey) || '[]');
       const friend = friendsList.find(f => f.address && f.address.toLowerCase() === addressString.toLowerCase());
       if (friend) {
         setFriendName(friend.name);
@@ -191,14 +190,10 @@ function Chat({ walletAddress }) {
       
       setMessages(prev => {
         const updated = [...prev, newMsg];
-        // Save to localStorage
-        const normalizedAccount = account?.toLowerCase();
-        const normalizedReceiver = receiver?.toLowerCase();
-        if (normalizedAccount && normalizedReceiver) {
-          const chatKey = `chat_${normalizedAccount}_${normalizedReceiver}`;
-          // Don't save fileUrl to localStorage (it's a blob URL that expires)
+        // Save to localStorage + server
+        if (account && receiver) {
           const msgToSave = { ...newMsg, fileUrl: null };
-          localStorage.setItem(chatKey, JSON.stringify([...prev.filter(m => m.type !== 'file' || m.fileUrl), msgToSave]));
+          saveMessage(account, receiver, msgToSave);
         }
         return updated;
       });
@@ -214,7 +209,7 @@ function Chat({ walletAddress }) {
     };
   }, [account, receiver]);
 
-  // Load messages from blockchain and IPFS
+  // Load messages from all decentralized sources
   const loadMessages = useCallback(async () => {
     if (!account || !receiver) {
       console.log('⚠️ Waiting for account and receiver...');
@@ -225,111 +220,94 @@ function Chat({ walletAddress }) {
       setLoading(true);
       setError(null);
       
-      // Normalize addresses to lowercase for consistent localStorage keys
-      const normalizedAccount = account.toLowerCase();
-      const normalizedReceiver = receiver.toLowerCase();
+      // STEP 1: Load from server + localStorage (fast, always available)
+      console.log('📦 Loading messages from server + localStorage...');
+      const mergedMessages = await loadMessagesFromAllSources(account, receiver);
       
-      // STEP 1: Load messages from localStorage first (imported or cached messages)
-      const chatKey = `chat_${normalizedAccount}_${normalizedReceiver}`;
-      const localMessages = JSON.parse(localStorage.getItem(chatKey) || '[]');
-      
-      if (localMessages.length > 0) {
-        console.log(`📦 Found ${localMessages.length} messages in localStorage for key: ${chatKey}`);
-        setMessages(localMessages);
+      if (mergedMessages.length > 0) {
+        console.log(`📦 Found ${mergedMessages.length} messages from server + local`);
+        // Ensure incoming flag is properly set
+        const processed = mergedMessages.map(msg => ({
+          ...msg,
+          incoming: msg.incoming !== undefined ? msg.incoming : 
+            (msg.sender || msg.from || '').toLowerCase() !== account.toLowerCase()
+        }));
+        setMessages(processed);
       }
       
-      // STEP 2: Load messages from blockchain + IPFS
-      console.log('📜 Loading chat history from blockchain...');
-      const chatHistory = await loadChatHistory(account, receiver);
-      
-      console.log(`✅ Found ${chatHistory.length} messages in blockchain`);
-      
-      if (chatHistory.length === 0) {
-        // Keep localStorage messages if blockchain is empty
-        if (localMessages.length === 0) {
-          setMessages([]);
-        }
-        return;
-      }
-      
-      // Load message content from IPFS
-      const messagesWithContent = await Promise.all(
-        chatHistory.map(async (msg) => {
-          try {
-            // If there's an IPFS hash, retrieve the content
-            if (msg.ipfsHash) {
-              console.log(`🔄 Fetching message ${msg.id} from IPFS:`, msg.ipfsHash);
-              const ipfsData = await retrieveFromIPFS(msg.ipfsHash);
-              
-              return {
-                ...msg,
-                content: ipfsData.content || '',
-                text: ipfsData.content || '',
-                time: new Date(msg.timestamp * 1000),
-                incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
-                status: 'delivered'
-              };
-            } else {
-              // Old message without IPFS hash
-              return {
-                ...msg,
-                content: '(Message content not available)',
-                text: '(Message content not available)',
-                time: new Date(msg.timestamp * 1000),
-                incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
-                status: 'delivered'
-              };
+      // STEP 2: Try to load from blockchain + IPFS (if MetaMask available)
+      if (window.ethereum) {
+        try {
+          console.log('📜 Loading chat history from blockchain...');
+          const chatHistory = await loadChatHistory(account, receiver);
+          
+          if (chatHistory.length > 0) {
+            console.log(`✅ Found ${chatHistory.length} messages in blockchain`);
+            
+            // Load message content from IPFS
+            const messagesWithContent = await Promise.all(
+              chatHistory.map(async (msg) => {
+                try {
+                  if (msg.ipfsHash) {
+                    const ipfsData = await retrieveFromIPFS(msg.ipfsHash);
+                    return {
+                      ...msg,
+                      content: ipfsData.content || '',
+                      text: ipfsData.content || '',
+                      time: new Date(msg.timestamp * 1000),
+                      incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+                      status: 'delivered'
+                    };
+                  } else {
+                    return {
+                      ...msg,
+                      content: '(Message content not available)',
+                      text: '(Message content not available)',
+                      time: new Date(msg.timestamp * 1000),
+                      incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+                      status: 'delivered'
+                    };
+                  }
+                } catch (error) {
+                  console.warn(`Failed to load content for message ${msg.id}:`, error);
+                  return null;
+                }
+              })
+            );
+            
+            // Filter out failed loads and merge with existing messages
+            const validBlockchainMsgs = messagesWithContent.filter(Boolean);
+            
+            if (validBlockchainMsgs.length > 0) {
+              setMessages(prev => {
+                const combined = [...prev];
+                validBlockchainMsgs.forEach(bcMsg => {
+                  const exists = combined.some(m => 
+                    m.id === bcMsg.id || 
+                    ((m.text || m.content) === (bcMsg.text || bcMsg.content) && 
+                     Math.abs(new Date(m.time).getTime() - new Date(bcMsg.time).getTime()) < 5000)
+                  );
+                  if (!exists) combined.push(bcMsg);
+                });
+                combined.sort((a, b) => new Date(a.time || a.timestamp) - new Date(b.time || b.timestamp));
+                // Save merged result
+                const chatKey = getChatKey(account, receiver);
+                localStorage.setItem(chatKey, JSON.stringify(combined));
+                return combined;
+              });
             }
-          } catch (error) {
-            console.warn(`Failed to load content for message ${msg.id}:`, error);
-            return {
-              ...msg,
-              content: '(Failed to load from IPFS)',
-              text: '(Failed to load from IPFS)',
-              time: new Date(msg.timestamp * 1000),
-              incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
-              status: 'error'
-            };
           }
-        })
-      );
-      
-      // STEP 3: Merge localStorage and blockchain messages (deduplicate)
-      const mergedMessages = [...localMessages];
-      
-      messagesWithContent.forEach(blockchainMsg => {
-        const exists = mergedMessages.some(local => 
-          local.id === blockchainMsg.id || 
-          (local.text === blockchainMsg.content && 
-           Math.abs(new Date(local.time).getTime() - new Date(blockchainMsg.time).getTime()) < 5000)
-        );
-        
-        if (!exists) {
-          mergedMessages.push(blockchainMsg);
+        } catch (bcErr) {
+          console.warn('⚠️ Blockchain loading failed (non-critical):', bcErr.message);
         }
-      });
-      
-      // Sort by time
-      mergedMessages.sort((a, b) => {
-        const timeA = a.time instanceof Date ? a.time : new Date(a.time);
-        const timeB = b.time instanceof Date ? b.time : new Date(b.time);
-        return timeA - timeB;
-      });
-      
-      console.log(`✅ Total messages after merge: ${mergedMessages.length}`);
-      setMessages(mergedMessages);
-      
-      // Update localStorage with merged messages (using variables already declared above)
-      localStorage.setItem(chatKey, JSON.stringify(mergedMessages));
+      }
       
     } catch (err) {
       console.error("❌ Error loading messages:", err);
       setError(`Failed to load messages: ${err.message}`);
       
-      // Even on error, try to show localStorage messages with normalized addresses
-      const normalizedAccount = account.toLowerCase();
-      const normalizedReceiver = receiver.toLowerCase();
-      const chatKey = `chat_${normalizedAccount}_${normalizedReceiver}`;
+      // Even on error, try to show localStorage messages
+      const chatKey = getChatKey(account, receiver);
       const localMessages = JSON.parse(localStorage.getItem(chatKey) || '[]');
       if (localMessages.length > 0) {
         setMessages(localMessages);
@@ -357,8 +335,8 @@ function Chat({ walletAddress }) {
           console.log('⚠️ MetaMask not available, using manual address');
           if (!mounted) return;
           setAccount(walletAddress);
-          // Skip loading messages from blockchain
-          setLoading(false);
+          // Still load messages from GunDB + server (skip blockchain only)
+          await loadMessages();
         }
       } catch (err) {
         console.error("❌ Initialization failed:", err);
@@ -391,12 +369,10 @@ function Chat({ walletAddress }) {
     }
   }, [account, receiver, loadMessages]);
 
-  // Save messages to localStorage whenever they change (for sent messages)
+  // Save messages to localStorage whenever they change
   useEffect(() => {
     if (account && receiver && messages.length > 0) {
-      const normalizedAccount = account.toLowerCase();
-      const normalizedReceiver = receiver.toLowerCase();
-      const chatKey = `chat_${normalizedAccount}_${normalizedReceiver}`;
+      const chatKey = getChatKey(account, receiver);
       localStorage.setItem(chatKey, JSON.stringify(messages));
     }
   }, [messages, account, receiver]);
@@ -511,14 +487,9 @@ function Chat({ walletAddress }) {
       // Update state IMMEDIATELY
       setMessages(prev => [...prev, newMsg]);
       
-      // Save to local storage with normalized addresses
-      const normalizedAccount = account.toLowerCase();
-      const normalizedReceiver = receiver.toLowerCase();
-      const chatKey = `chat_${normalizedAccount}_${normalizedReceiver}`;
-      const chatHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
-      chatHistory.push(newMsg);
-      localStorage.setItem(chatKey, JSON.stringify(chatHistory));
-      console.log('[Chat] Message saved to local storage with key:', chatKey);
+      // Save to server + localStorage
+      saveMessage(account, receiver, newMsg);
+      console.log('[Chat] Message saved to server + localStorage');
       
       // Receiver does NOT store metadata on blockchain - only sender does
       // This avoids the receiver needing to approve a transaction
@@ -821,6 +792,9 @@ function Chat({ walletAddress }) {
       setMessages(prev => [...prev, newMessage]);
       setMessage(''); // Clear input
       
+      // Save to server for persistence
+      saveMessage(account, receiver, newMessage);
+      
       // If not connected, trigger a reload after a delay to show the message appeared
       if (!connected) {
         setTimeout(() => {
@@ -913,12 +887,9 @@ function Chat({ walletAddress }) {
 
       setMessages(prev => {
         const updated = [...prev, newMsg];
-        // Save to localStorage (without fileUrl since it's temporary)
-        const normalizedAccount = account.toLowerCase();
-        const normalizedReceiver = receiver.toLowerCase();
-        const chatKey = `chat_${normalizedAccount}_${normalizedReceiver}`;
+        // Save to server + localStorage (without fileUrl since it's temporary)
         const msgToSave = { ...newMsg, fileUrl: null };
-        localStorage.setItem(chatKey, JSON.stringify([...prev, msgToSave]));
+        saveMessage(account, receiver, msgToSave);
         return updated;
       });
 

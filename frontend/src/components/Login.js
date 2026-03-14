@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { initWeb3, storeMessageMetadata, getMessageMetadata } from "../utils/blockchain";
+import ThermodynamicGrid from "./ThermodynamicGrid";
 
 const Login = ({ setWalletAddress }) => {
   const navigate = useNavigate();
@@ -11,339 +12,294 @@ const Login = ({ setWalletAddress }) => {
   const [manualAddress, setManualAddress] = useState("");
 
   const registerUser = (address, name) => {
-    // Add user to global users list
-    const allUsers = JSON.parse(localStorage.getItem('allChatUsers') || '[]');
-    const existingUser = allUsers.find(u => u.address.toLowerCase() === address.toLowerCase());
-    
-    if (!existingUser) {
-      allUsers.push({
-        username: name,
-        address: address,
-        joinedAt: new Date().toISOString()
-      });
-      localStorage.setItem('allChatUsers', JSON.stringify(allUsers));
+    const allUsers = JSON.parse(localStorage.getItem("allChatUsers") || "[]");
+    if (!allUsers.find(u => u.address.toLowerCase() === address.toLowerCase())) {
+      allUsers.push({ username: name, address, joinedAt: new Date().toISOString() });
+      localStorage.setItem("allChatUsers", JSON.stringify(allUsers));
     }
-    
     localStorage.setItem("username", name);
   };
 
   const handleConnectWallet = async () => {
-    if (!username.trim()) {
-      alert("Please enter your username first");
-      return;
-    }
-
+    if (!username.trim()) { alert("Please enter your username first"); return; }
     setLoading(true);
     try {
       const { web3, account, contract, error } = await initWeb3();
-
-      if (error) {
-        alert(`❌ Error: ${error}`);
-        setLoading(false);
-        return;
-      }
-
-      if (!account) {
-        alert("No wallet account detected. Please connect your wallet.");
-        setLoading(false);
-        return;
-      }
-
-      // Register and save wallet info
+      if (error) { alert(`❌ Error: ${error}`); setLoading(false); return; }
+      if (!account) { alert("No wallet account detected."); setLoading(false); return; }
       registerUser(account, username);
       setAccount(account);
       setWalletAddress(account);
       localStorage.setItem("walletAddress", account);
-
-      console.log("✅ Connected wallet:", account);
-      console.log("🔗 Contract instance:", contract);
-
-      // (Optional) Simple blockchain test to verify contract interaction
-      const receiver = "0x0000000000000000000000000000000000000000"; // dummy address
+      const receiver = "0x0000000000000000000000000000000000000000";
       const messageHash = web3.utils.sha3("Hello blockchain!");
       await storeMessageMetadata(account, receiver, messageHash);
-
-      const metadata = await getMessageMetadata(0);
-      console.log("🧩 Retrieved metadata:", metadata);
-
+      await getMessageMetadata(0);
       navigate("/all-users");
     } catch (err) {
       console.error("❌ Wallet connection failed:", err);
       alert("Error connecting to wallet. Check console for details.");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleManualLogin = () => {
-    if (!username.trim()) {
-      alert("Please enter your username first");
-      return;
-    }
-
-    if (!manualAddress.trim() || manualAddress.length < 42) {
-      alert("Please enter a valid Ethereum address");
-      return;
-    }
-
-    // Register and save wallet info
+    if (!username.trim()) { alert("Please enter your username first"); return; }
+    if (!manualAddress.trim() || manualAddress.length < 42) { alert("Please enter a valid Ethereum address"); return; }
     registerUser(manualAddress, username);
     setAccount(manualAddress);
     setWalletAddress(manualAddress);
     localStorage.setItem("walletAddress", manualAddress);
-
     navigate("/all-users");
   };
 
-  const styles = {
-    container: {
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #2d1b4e 100%)",
-      backgroundSize: "200% 200%",
-      animation: "gradientShift 15s ease infinite",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      padding: "20px",
-      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-      position: "relative",
-      overflow: "hidden"
-    },
-    card: {
-      background: "linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%)",
-      borderRadius: "24px",
-      boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(138, 102, 255, 0.2)",
-      padding: "50px 40px",
-      maxWidth: "450px",
-      width: "100%",
-      textAlign: "center",
-      border: "1px solid rgba(138, 102, 255, 0.2)",
-      backdropFilter: "blur(10px)",
-      animation: "fadeIn 0.8s ease-out, glow 3s ease-in-out infinite",
-      position: "relative",
-      zIndex: 1
-    },
-    logo: {
-      fontSize: "64px",
-      marginBottom: "20px",
-      animation: "float 3s ease-in-out infinite",
-      textShadow: "0 0 30px rgba(138, 102, 255, 0.8)"
-    },
-    title: {
-      fontSize: "32px",
-      fontWeight: "700",
-      color: "#ffffff",
-      marginBottom: "10px",
-      textShadow: "0 0 20px rgba(138, 102, 255, 0.5)"
-    },
-    subtitle: {
-      fontSize: "16px",
-      color: "#b8b8d1",
-      marginBottom: "40px",
-      lineHeight: "1.5"
-    },
-    button: {
-      width: "100%",
-      padding: "16px",
-      background: "linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)",
-      color: "white",
-      border: "none",
-      borderRadius: "12px",
-      fontSize: "16px",
-      fontWeight: "600",
-      cursor: "pointer",
-      transition: "all 0.3s ease",
-      marginBottom: "15px",
-      boxShadow: "0 4px 15px rgba(138, 102, 255, 0.4)",
-      position: "relative",
-      overflow: "hidden"
-    },
-    buttonSecondary: {
-      width: "100%",
-      padding: "16px",
-      backgroundColor: "transparent",
-      color: "#8a66ff",
-      border: "2px solid #8a66ff",
-      borderRadius: "12px",
-      fontSize: "16px",
-      fontWeight: "600",
-      cursor: "pointer",
-      transition: "all 0.3s ease"
-    },
-    input: {
-      width: "100%",
-      padding: "14px 16px",
-      fontSize: "16px",
-      border: "2px solid rgba(138, 102, 255, 0.3)",
-      borderRadius: "12px",
-      outline: "none",
-      transition: "all 0.3s ease",
-      boxSizing: "border-box",
-      marginBottom: "15px",
-      backgroundColor: "rgba(26, 31, 58, 0.6)",
-      color: "#ffffff",
-      backdropFilter: "blur(5px)"
-    },
-    connectedText: {
-      fontSize: "18px",
-      color: "#4ade80",
-      fontWeight: "600",
-      marginBottom: "20px",
-      textShadow: "0 0 10px rgba(74, 222, 128, 0.5)"
-    },
-    divider: {
-      display: "flex",
-      alignItems: "center",
-      margin: "30px 0",
-      color: "#b8b8d1",
-      fontSize: "14px"
-    },
-    dividerLine: {
-      flex: 1,
-      height: "1px",
-      background: "linear-gradient(90deg, transparent, rgba(138, 102, 255, 0.5), transparent)"
-    },
-    dividerText: {
-      padding: "0 15px"
-    },
-    switchMode: {
-      marginTop: "20px",
-      fontSize: "14px",
-      color: "#8a66ff",
-      cursor: "pointer",
-      textDecoration: "underline",
-      transition: "all 0.3s ease"
-    },
-    features: {
-      textAlign: "left",
-      marginTop: "30px",
-      padding: "20px",
-      background: "rgba(26, 31, 58, 0.6)",
-      borderRadius: "12px",
-      border: "1px solid rgba(138, 102, 255, 0.2)",
-      backdropFilter: "blur(5px)"
-    },
-    featureItem: {
-      display: "flex",
-      alignItems: "center",
-      marginBottom: "10px",
-      fontSize: "14px",
-      color: "#b8b8d1"
-    },
-    featureIcon: {
-      marginRight: "10px",
-      fontSize: "18px"
-    }
-  };
-
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.logo}>🔐</div>
-        <h1 style={styles.title}>Decentralized Chat</h1>
-        <p style={styles.subtitle}>
-          Secure, private, peer-to-peer messaging on the blockchain
-        </p>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        *{box-sizing:border-box}
 
-        {account && !useManualMode ? (
-          <div>
-            <p style={styles.connectedText}>
-              ✅ Connected: {account.slice(0, 6)}...{account.slice(-4)}
-            </p>
-            <button
-              onClick={() => navigate("/all-users")}
-              style={styles.button}
-              onMouseEnter={(e) => (e.target.style.transform = "scale(1.02)", e.target.style.boxShadow = "0 6px 25px rgba(138, 102, 255, 0.6)")}
-              onMouseLeave={(e) => (e.target.style.transform = "scale(1)", e.target.style.boxShadow = "0 4px 15px rgba(138, 102, 255, 0.4)")}
-            >
-              Continue to Chat
-            </button>
-          </div>
-        ) : (
-          <div>
-            {/* Username Input */}
-            <input
-              type="text"
-              placeholder="Enter your username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={styles.input}
-              onFocus={(e) => e.target.style.borderColor = "#8a66ff"}
-              onBlur={(e) => e.target.style.borderColor = "rgba(138, 102, 255, 0.3)"}
-            />
-            
-            {!useManualMode ? (
-              <>
-                <button
-                  onClick={handleConnectWallet}
-                  disabled={loading}
-                  style={{...styles.button, opacity: loading ? 0.6 : 1}}
-                  onMouseEnter={(e) => !loading && (e.target.style.transform = "scale(1.02)", e.target.style.boxShadow = "0 6px 25px rgba(138, 102, 255, 0.6)")}
-                  onMouseLeave={(e) => !loading && (e.target.style.transform = "scale(1)", e.target.style.boxShadow = "0 4px 15px rgba(138, 102, 255, 0.4)")}
-                >
-                  {loading ? "Connecting..." : "🦊 Connect MetaMask Wallet"}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes breathe{0%,100%{opacity:.8}50%{opacity:1}}
+
+        /* ── split root ── */
+        .lg-root{
+          display:flex; width:100%; min-height:100vh;
+          font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+          background:#000;
+        }
+
+        /* ══════ LEFT PANEL — form + heatmap bg ══════ */
+        .lg-left{
+          width:50%; position:relative; overflow:hidden;
+          display:flex; align-items:center; justify-content:center;
+          padding:48px 40px;
+        }
+
+        /* glass card on left */
+        .lg-card{
+          position:relative; z-index:2;
+          width:100%; max-width:420px;
+          background:rgba(0,0,0,.55);
+          backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+          border:1px solid rgba(255,255,255,.08);
+          border-radius:24px;
+          padding:44px 36px;
+          box-shadow:0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.03) inset;
+          animation:fadeUp .7s ease forwards;
+        }
+
+        /* logo */
+        .lg-logo{display:flex;align-items:center;gap:14px;margin-bottom:32px;opacity:0;animation:fadeUp .5s ease forwards .1s}
+        .lg-logo-icon{
+          width:44px;height:44px;border-radius:14px;background:#fff;color:#000;
+          display:flex;align-items:center;justify-content:center;font-size:22px;
+          box-shadow:0 4px 20px rgba(255,255,255,.15);
+        }
+        .lg-logo-text{font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px}
+
+        /* heading */
+        .lg-heading{margin-bottom:4px;opacity:0;animation:fadeUp .5s ease forwards .2s}
+        .lg-heading h1{font-size:26px;font-weight:700;color:#fff;margin:0;letter-spacing:-.5px}
+        .lg-heading p{font-size:14px;color:rgba(255,255,255,.4);margin:8px 0 0;line-height:1.6}
+
+        /* connected */
+        .lg-connected{
+          margin-top:24px;padding:16px;
+          background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+          border-radius:14px;opacity:0;animation:fadeUp .5s ease forwards .3s;
+        }
+        .lg-connected-addr{font-size:14px;color:#fff;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+        .lg-connected-dot{width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.6);animation:breathe 2s ease-in-out infinite}
+
+        /* form */
+        .lg-form{margin-top:24px;display:flex;flex-direction:column}
+        .lg-field{opacity:0;animation:fadeUp .5s ease forwards}
+        .lg-field:nth-child(1){animation-delay:.3s}
+        .lg-field:nth-child(2){animation-delay:.4s}
+        .lg-field:nth-child(3){animation-delay:.5s}
+        .lg-field:nth-child(4){animation-delay:.6s}
+
+        .lg-label{display:block;font-size:12px;font-weight:600;color:rgba(255,255,255,.45);margin-bottom:8px;letter-spacing:.6px;text-transform:uppercase}
+        .lg-input{
+          width:100%;padding:13px 16px;font-size:15px;font-family:inherit;
+          border:1px solid rgba(255,255,255,.1);border-radius:12px;outline:none;
+          transition:all .25s ease;margin-bottom:18px;
+          background:rgba(255,255,255,.04);color:#fff;
+        }
+        .lg-input::placeholder{color:rgba(255,255,255,.18)}
+        .lg-input:focus{border-color:rgba(255,255,255,.3);box-shadow:0 0 0 3px rgba(255,255,255,.05);background:rgba(255,255,255,.07)}
+        .lg-input.mono{font-family:'SF Mono',Consolas,Monaco,monospace;font-size:14px}
+
+        /* primary btn */
+        .lg-btn{
+          width:100%;padding:14px 24px;font-size:15px;font-weight:600;font-family:inherit;
+          color:#000;border:none;border-radius:12px;cursor:pointer;
+          transition:all .3s ease;position:relative;overflow:hidden;
+          background:#fff;box-shadow:0 4px 20px rgba(255,255,255,.12);
+          display:flex;align-items:center;justify-content:center;gap:10px;
+        }
+        .lg-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 30px rgba(255,255,255,.2)}
+        .lg-btn:active:not(:disabled){transform:translateY(0)}
+        .lg-btn:disabled{opacity:.5;cursor:not-allowed}
+        .lg-btn .btn-shimmer{
+          position:absolute;top:0;left:0;width:100%;height:100%;
+          background:linear-gradient(90deg,transparent,rgba(0,0,0,.04),transparent);
+          background-size:200% 100%;animation:shimmer 3s ease-in-out infinite;pointer-events:none;
+        }
+
+        /* outline btn */
+        .lg-btn-outline{
+          width:100%;padding:14px 24px;font-size:15px;font-weight:600;font-family:inherit;
+          color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:12px;cursor:pointer;
+          transition:all .3s ease;background:transparent;
+          display:flex;align-items:center;justify-content:center;gap:10px;
+        }
+        .lg-btn-outline:hover{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.04);transform:translateY(-1px)}
+
+        /* divider */
+        .lg-divider{display:flex;align-items:center;margin:20px 0;opacity:0;animation:fadeUp .5s ease forwards .55s}
+        .lg-divider-line{flex:1;height:1px;background:rgba(255,255,255,.07)}
+        .lg-divider-text{padding:0 16px;font-size:11px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:1.5px}
+
+        /* switch */
+        .lg-switch{
+          display:block;text-align:center;font-size:14px;color:rgba(255,255,255,.35);
+          cursor:pointer;transition:all .25s ease;padding:10px;border-radius:10px;margin-top:4px;
+          opacity:0;animation:fadeUp .5s ease forwards .65s;
+        }
+        .lg-switch:hover{color:#fff;background:rgba(255,255,255,.04)}
+
+        /* features */
+        .lg-features{margin-top:28px;display:flex;flex-direction:column;gap:8px;opacity:0;animation:fadeUp .5s ease forwards .7s}
+        .lg-feat{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.03);transition:all .3s ease}
+        .lg-feat:hover{background:rgba(255,255,255,.03);border-color:rgba(255,255,255,.06);transform:translateX(4px)}
+        .lg-feat-icon{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+        .lg-feat-text{font-size:12px;color:rgba(255,255,255,.35);font-weight:500}
+
+        /* spinner */
+        .lg-spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+
+        /* ══════ RIGHT PANEL — image ══════ */
+        .lg-right{
+          width:50%; position:relative; overflow:hidden;
+          display:flex; align-items:center; justify-content:center;
+          background:#000;
+        }
+        .lg-right img{
+          width:75%; max-width:420px;
+          filter:invert(1) drop-shadow(0 0 60px rgba(255,255,255,.08));
+          opacity:.85;
+        }
+        .lg-right-overlay{
+          position:absolute;inset:0;
+          background:radial-gradient(circle at 50% 50%,transparent 30%,rgba(0,0,0,.7) 100%);
+          pointer-events:none;
+        }
+        .lg-right-content{position:absolute;bottom:50px;left:48px;right:48px;z-index:2}
+        .lg-right-badge{
+          display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
+          border-radius:50px;background:rgba(255,255,255,.06);
+          border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.6);
+          font-size:12px;font-weight:600;letter-spacing:.5px;margin-bottom:16px;
+        }
+        .lg-right-title{font-size:28px;font-weight:700;color:#fff;line-height:1.3;margin:0 0 10px;letter-spacing:-.5px}
+        .lg-right-desc{font-size:14px;color:rgba(255,255,255,.35);line-height:1.6;margin:0;max-width:380px}
+
+        /* responsive */
+        @media(max-width:900px){
+          .lg-root{flex-direction:column}
+          .lg-left{width:100%;padding:32px 24px}
+          .lg-right{display:none}
+        }
+      `}</style>
+
+      <div className="lg-root">
+        {/* ══════ LEFT — Heatmap + Form ══════ */}
+        <div className="lg-left">
+          <ThermodynamicGrid resolution={12} coolingFactor={0.96} />
+
+          <div className="lg-card">
+            <div className="lg-logo">
+              <div className="lg-logo-icon">🔐</div>
+              <div className="lg-logo-text">Decentralized Chat</div>
+            </div>
+
+            <div className="lg-heading">
+              <h1>Welcome back</h1>
+              <p>Sign in with your wallet to access secure, peer-to-peer messaging on the blockchain.</p>
+            </div>
+
+            {account && !useManualMode ? (
+              <div className="lg-connected">
+                <div className="lg-connected-addr">
+                  <div className="lg-connected-dot" />
+                  Connected: {account.slice(0, 6)}...{account.slice(-4)}
+                </div>
+                <button className="lg-btn" onClick={() => navigate("/all-users")}>
+                  <span className="btn-shimmer" />
+                  Continue to Chat →
                 </button>
-                
-                <div style={styles.divider}>
-                  <div style={styles.dividerLine}></div>
-                  <span style={styles.dividerText}>OR</span>
-                  <div style={styles.dividerLine}></div>
-                </div>
-                
-                <div
-                  onClick={() => setUseManualMode(true)}
-                  style={styles.switchMode}
-                >
-                  📝 Enter Address Manually
-                </div>
-              </>
+              </div>
             ) : (
-              <>
-                <input
-                  type="text"
-                  placeholder="Enter Ethereum address (0x...)"
-                  value={manualAddress}
-                  onChange={(e) => setManualAddress(e.target.value)}
-                  style={styles.input}
-                  onFocus={(e) => e.target.style.borderColor = "#8a66ff"}
-                  onBlur={(e) => e.target.style.borderColor = "rgba(138, 102, 255, 0.3)"}
-                />
-                <button
-                  onClick={handleManualLogin}
-                  style={styles.button}
-                  onMouseEnter={(e) => (e.target.style.transform = "scale(1.02)", e.target.style.boxShadow = "0 6px 25px rgba(138, 102, 255, 0.6)")}
-                  onMouseLeave={(e) => (e.target.style.transform = "scale(1)", e.target.style.boxShadow = "0 4px 15px rgba(138, 102, 255, 0.4)")}
-                >
-                  Continue with Address
-                </button>
-                
-                <div
-                  onClick={() => setUseManualMode(false)}
-                  style={styles.switchMode}
-                >
-                  🦊 Use MetaMask Instead
+              <div className="lg-form">
+                <div className="lg-field">
+                  <label className="lg-label">Username</label>
+                  <input type="text" placeholder="Enter your display name" value={username} onChange={(e) => setUsername(e.target.value)} className="lg-input" />
                 </div>
-              </>
-            )}
-          </div>
-        )}
 
-        <div style={styles.features}>
-          <div style={styles.featureItem}>
-            <span style={styles.featureIcon}>🔒</span>
-            <span>End-to-end encrypted messages</span>
+                {!useManualMode ? (
+                  <>
+                    <div className="lg-field">
+                      <button className="lg-btn-outline" onClick={handleConnectWallet} disabled={loading} style={{ opacity: loading ? 0.5 : 1 }}>
+                        {loading ? (<><div className="lg-spinner" /> Connecting...</>) : (<>🦊 Connect MetaMask Wallet</>)}
+                      </button>
+                    </div>
+                    <div className="lg-divider">
+                      <div className="lg-divider-line" />
+                      <span className="lg-divider-text">Or</span>
+                      <div className="lg-divider-line" />
+                    </div>
+                    <div className="lg-switch" onClick={() => setUseManualMode(true)}>📝 Enter wallet address manually</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="lg-field">
+                      <label className="lg-label">Wallet Address</label>
+                      <input type="text" placeholder="0x..." value={manualAddress} onChange={(e) => setManualAddress(e.target.value)} className="lg-input mono" />
+                    </div>
+                    <div className="lg-field">
+                      <button className="lg-btn" onClick={handleManualLogin}>
+                        <span className="btn-shimmer" />Continue with Address →
+                      </button>
+                    </div>
+                    <div className="lg-switch" onClick={() => setUseManualMode(false)}>🦊 Use MetaMask instead</div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="lg-features">
+              <div className="lg-feat"><div className="lg-feat-icon">🔒</div><span className="lg-feat-text">End-to-end encrypted messages</span></div>
+              <div className="lg-feat"><div className="lg-feat-icon">⛓️</div><span className="lg-feat-text">Blockchain-verified identity</span></div>
+              <div className="lg-feat"><div className="lg-feat-icon">🚀</div><span className="lg-feat-text">Peer-to-peer WebRTC connections</span></div>
+            </div>
           </div>
-          <div style={styles.featureItem}>
-            <span style={styles.featureIcon}>⛓️</span>
-            <span>Blockchain-verified identity</span>
-          </div>
-          <div style={styles.featureItem}>
-            <span style={styles.featureIcon}>🚀</span>
-            <span>Peer-to-peer WebRTC connections</span>
+        </div>
+
+        {/* ══════ RIGHT — Logo Image ══════ */}
+        <div className="lg-right">
+          <div className="lg-right-overlay" />
+          <img src="/dapp_network_logo.png" alt="Decentralized network" />
+          <div className="lg-right-content">
+            <div className="lg-right-badge">⚡ Decentralized & Secure</div>
+            <h2 className="lg-right-title">Your messages,<br />your control.</h2>
+            <p className="lg-right-desc">No central servers. No data harvesting. Just secure, peer-to-peer communication powered by blockchain technology.</p>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

@@ -244,3 +244,101 @@ async def check_signals(peer_id: str):
     peer_data.candidates.clear()
     
     return response
+
+
+# =====================================================
+# MESSAGE STORAGE — Decentralized message persistence
+# =====================================================
+
+# In-memory message store: chat_pair_key -> List[MessageData]
+# chat_pair_key = sorted lowercase addresses joined by "_"
+message_store: Dict[str, List[Dict]] = {}
+message_store_lock = asyncio.Lock()
+
+class StoreMessageRequest(BaseModel):
+    sender: str
+    receiver: str
+    message: Dict[str, Any]
+
+class MigrateMessagesRequest(BaseModel):
+    sender: str
+    receiver: str
+    messages: List[Dict[str, Any]]
+
+def get_chat_pair_key(addr1: str, addr2: str) -> str:
+    """Generate a consistent key for a chat pair regardless of order."""
+    a, b = addr1.lower(), addr2.lower()
+    return f"{min(a, b)}_{max(a, b)}"
+
+@app.post("/messages/store")
+async def store_message(req: StoreMessageRequest):
+    """Store a single message for a chat pair."""
+    pair_key = get_chat_pair_key(req.sender, req.receiver)
+    
+    msg = req.message.copy()
+    msg['_stored_at'] = datetime.utcnow().isoformat()
+    msg['_id'] = f"{pair_key}_{len(message_store.get(pair_key, []))}_{datetime.utcnow().timestamp()}"
+    
+    async with message_store_lock:
+        if pair_key not in message_store:
+            message_store[pair_key] = []
+        message_store[pair_key].append(msg)
+    
+    logger.info(f"Stored message for pair {pair_key}, total: {len(message_store[pair_key])}")
+    return {"status": "stored", "message_id": msg['_id'], "total": len(message_store[pair_key])}
+
+@app.get("/messages/{addr1}/{addr2}")
+async def get_messages(addr1: str, addr2: str, limit: int = 200):
+    """Retrieve messages between two addresses."""
+    pair_key = get_chat_pair_key(addr1, addr2)
+    
+    async with message_store_lock:
+        messages = message_store.get(pair_key, [])
+    
+    # Return the last N messages
+    result = messages[-limit:] if len(messages) > limit else messages
+    
+    logger.info(f"Retrieved {len(result)} messages for pair {pair_key}")
+    return {"messages": result, "total": len(messages)}
+
+@app.post("/messages/migrate")
+async def migrate_messages(req: MigrateMessagesRequest):
+    """Bulk import messages from localStorage to server storage."""
+    pair_key = get_chat_pair_key(req.sender, req.receiver)
+    
+    async with message_store_lock:
+        if pair_key not in message_store:
+            message_store[pair_key] = []
+        
+        existing_count = len(message_store[pair_key])
+        
+        # Deduplicate: don't add messages that already exist
+        existing_fingerprints = set()
+        for msg in message_store[pair_key]:
+            content = msg.get('content', msg.get('text', ''))
+            sender = msg.get('sender', '').lower()
+            time_str = msg.get('time', msg.get('timestamp', ''))
+            existing_fingerprints.add(f"{content}_{sender}_{time_str}")
+        
+        added = 0
+        for msg in req.messages:
+            content = msg.get('content', msg.get('text', ''))
+            sender = msg.get('sender', '').lower()
+            time_str = msg.get('time', msg.get('timestamp', ''))
+            fingerprint = f"{content}_{sender}_{time_str}"
+            
+            if fingerprint not in existing_fingerprints:
+                msg_copy = msg.copy()
+                msg_copy['_stored_at'] = datetime.utcnow().isoformat()
+                msg_copy['_migrated'] = True
+                message_store[pair_key].append(msg_copy)
+                existing_fingerprints.add(fingerprint)
+                added += 1
+    
+    logger.info(f"Migrated {added} new messages for pair {pair_key} (skipped {len(req.messages) - added} duplicates)")
+    return {
+        "status": "migrated",
+        "added": added,
+        "skipped": len(req.messages) - added,
+        "total": len(message_store.get(pair_key, []))
+    }

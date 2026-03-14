@@ -8,6 +8,10 @@ import Groups from "./pages/Groups";
 import GroupChat from "./pages/GroupChat";
 import Calls from "./pages/Calls";
 import { initWeb3 } from "./utils/blockchain";
+import { migrateLocalStorageKeys } from "./utils/storageHelper";
+
+// Run migration ONCE on app load to fix duplicate localStorage keys
+migrateLocalStorageKeys();
 
 function App() {
   const [walletAddress, setWalletAddress] = useState(localStorage.getItem("walletAddress") || "");

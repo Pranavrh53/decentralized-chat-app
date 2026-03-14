@@ -37,6 +37,8 @@ import {
   MicOff,
   Videocam as VideocamOn,
   VideocamOff,
+  VolumeOff,
+  VolumeUp,
   AccountCircle
 } from '@mui/icons-material';
 
@@ -57,6 +59,7 @@ const Calls = ({ walletAddress, onLogout }) => {
   const [callType, setCallType] = useState(null); // 'video' or 'audio'
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
   const [isInitiator, setIsInitiator] = useState(false);
 
@@ -720,6 +723,7 @@ const Calls = ({ walletAddress, onLogout }) => {
     callTypeRef.current = null;
     setIsMuted(false);
     setIsVideoOff(false);
+    setIsDeafened(false);
     pendingCallTypeRef.current = null;
     pendingOfferRef.current = null;
 
@@ -744,6 +748,20 @@ const Calls = ({ walletAddress, onLogout }) => {
     const newVideoOff = !isVideoOff;
     setVideoEnabled(!newVideoOff);
     setIsVideoOff(newVideoOff);
+  };
+
+  const handleToggleDeafen = () => {
+    const newDeafened = !isDeafened;
+    setIsDeafened(newDeafened);
+    // Mute/unmute the remote audio element
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = newDeafened;
+    }
+    // Also mute/unmute the remote video element (video calls have audio in the video element too)
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = newDeafened;
+    }
+    console.log(`[Calls] Remote audio ${newDeafened ? 'deafened' : 'restored'}`);
   };
 
   const handleBackToList = () => {
@@ -1021,6 +1039,11 @@ const Calls = ({ walletAddress, onLogout }) => {
                       🔇 You are muted
                     </Typography>
                   )}
+                  {isDeafened && (
+                    <Typography sx={{ color: '#ff8c42', fontSize: '14px', mt: 0.5 }}>
+                      🔇 Speaker muted
+                    </Typography>
+                  )}
                 </Box>
               )}
 
@@ -1051,6 +1074,22 @@ const Calls = ({ walletAddress, onLogout }) => {
                   }}
                 >
                   {isMuted ? <MicOff /> : <Mic />}
+                </IconButton>
+
+                <IconButton
+                  onClick={handleToggleDeafen}
+                  title={isDeafened ? 'Unmute Speaker' : 'Mute Speaker'}
+                  sx={{
+                    background: isDeafened ? '#ef4444' : 'rgba(138, 102, 255, 0.3)',
+                    color: '#fff',
+                    width: 56,
+                    height: 56,
+                    '&:hover': {
+                      background: isDeafened ? '#dc2626' : 'rgba(138, 102, 255, 0.5)',
+                    }
+                  }}
+                >
+                  {isDeafened ? <VolumeOff /> : <VolumeUp />}
                 </IconButton>
 
                 {callType === 'video' && (
