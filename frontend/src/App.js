@@ -8,6 +8,8 @@ import Groups from "./pages/Groups";
 import GroupChat from "./pages/GroupChat";
 import Calls from "./pages/Calls";
 import Profile from "./pages/Profile";
+import FAQ from "./pages/FAQ";
+import Contact from "./pages/Contact";
 import { initWeb3 } from "./utils/blockchain";
 import { migrateLocalStorageKeys } from "./utils/storageHelper";
 
@@ -159,19 +161,23 @@ function App() {
         />
         <Route
           path="/contact"
-          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
-        />
-        <Route
-          path="/settings"
-          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
+          element={
+            walletAddress ? (
+              <Contact walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
         />
         <Route
           path="/faqs"
-          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
-        />
-        <Route
-          path="/terms"
-          element={walletAddress ? <Navigate to="/friends" /> : <Navigate to="/" />}
+          element={
+            walletAddress ? (
+              <FAQ walletAddress={walletAddress} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
         />
       </Routes>
     </Router>

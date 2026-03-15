@@ -794,28 +794,30 @@ const Calls = ({ walletAddress, onLogout }) => {
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0f1419 0%, #1a1f3a 50%, #2d1b4e 100%)',
+      background: '#000000'
     },
     contentWrapper: {
-      padding: '40px',
-      maxWidth: '1400px',
-      margin: '0 auto',
+      padding: '96px 24px 40px',
+      maxWidth: 1080,
+      margin: '0 auto'
     },
     header: {
-      marginBottom: '30px',
-      textAlign: 'center'
+      marginBottom: 18,
+      textAlign: 'left',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 2
     },
     title: {
-      fontSize: '32px',
-      fontWeight: 700,
-      background: 'linear-gradient(135deg, #ff8c42 0%, #8a66ff 100%)',
-      WebkitBackgroundClip: 'text',
-      WebkitTextFillColor: 'transparent',
-      marginBottom: '10px'
+      fontFamily: "'Space Mono', monospace",
+      fontSize: 20,
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
+      color: '#ffffff'
     },
     subtitle: {
-      color: 'rgba(255, 255, 255, 0.7)',
-      fontSize: '16px'
+      color: 'rgba(255,255,255,0.55)',
+      fontSize: 13
     }
   };
 
@@ -824,14 +826,14 @@ const Calls = ({ walletAddress, onLogout }) => {
       <div style={styles.container}>
         <Navbar username={username} walletAddress={walletAddress} onLogout={onLogout} />
 
-        <Box sx={{ padding: '40px', maxWidth: '1200px', margin: '0 auto' }}>
+        <Box sx={{ padding: '96px 24px 40px', maxWidth: 1080, margin: '0 auto' }}>
           {/* Header */}
           <Paper sx={{
-            background: 'linear-gradient(135deg, rgba(138, 102, 255, 0.1) 0%, rgba(255, 140, 66, 0.1) 100%)',
-            border: '1px solid rgba(138, 102, 255, 0.3)',
-            borderRadius: '16px',
-            padding: '20px',
-            marginBottom: '30px',
+            background: 'rgba(0,0,0,0.55)',
+            border: '1px solid rgba(255,40,0,0.15)',
+            borderRadius: '24px',
+            padding: '20px 22px',
+            marginBottom: '18px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between'
@@ -840,22 +842,22 @@ const Calls = ({ walletAddress, onLogout }) => {
               <Avatar sx={{
                 width: 60,
                 height: 60,
-                background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+                background: 'linear-gradient(135deg, rgba(255,140,66,0.4) 0%, rgba(255,60,0,0.35) 100%)',
                 fontSize: '28px'
               }}>
                 {getAvatarEmoji(selectedFriend.name)}
               </Avatar>
               <Box>
-                <Typography sx={{ color: '#fff', fontSize: '24px', fontWeight: 600 }}>
+                <Typography sx={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>
                   {selectedFriend.name}
                 </Typography>
-                <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' }}>
+                <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 12, fontFamily: "'Space Mono', monospace" }}>
                   {selectedFriend.address.substring(0, 8)}...{selectedFriend.address.slice(-6)}
                 </Typography>
                 {(inCall || incomingCall || loading) && (
                   <Typography sx={{
                     color: connected ? '#10b981' : '#ef4444',
-                    fontSize: '14px',
+                    fontSize: 12,
                     fontWeight: 600,
                     mt: 0.5
                   }}>
@@ -882,7 +884,16 @@ const Calls = ({ walletAddress, onLogout }) => {
 
           {/* Error Banner */}
           {error && (
-            <Alert severity="error" sx={{ marginBottom: '20px' }}>
+            <Alert
+              severity="error"
+              sx={{
+                marginBottom: '16px',
+                borderRadius: 2,
+                border: '1px solid rgba(239,68,68,0.7)',
+                background: 'rgba(40,0,0,0.9)',
+                color: '#fecaca'
+              }}
+            >
               {error}
             </Alert>
           )}
@@ -890,15 +901,16 @@ const Calls = ({ walletAddress, onLogout }) => {
           {/* Incoming Call Notification */}
           {incomingCall && (
             <Paper sx={{
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              background: 'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(5,150,105,0.28) 100%)',
+              border: '1px solid rgba(16,185,129,0.6)',
               padding: '20px',
               borderRadius: '12px',
-              marginBottom: '20px',
+              marginBottom: '16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
             }}>
-              <Typography sx={{ color: '#fff', fontSize: '18px', fontWeight: 600 }}>
+              <Typography sx={{ color: '#e5fdf4', fontSize: 16, fontWeight: 600 }}>
                 📞 Incoming {incomingCall.callType} call...
               </Typography>
               <Box sx={{ display: 'flex', gap: 2 }}>
@@ -907,9 +919,10 @@ const Calls = ({ walletAddress, onLogout }) => {
                   onClick={handleAcceptCall}
                   disabled={loading}
                   sx={{
-                    background: '#fff',
-                    color: '#10b981',
-                    '&:hover': { background: '#f0f0f0' }
+                    background: '#ffffff',
+                    color: '#047857',
+                    fontWeight: 600,
+                    '&:hover': { background: '#f9fafb' }
                   }}
                 >
                   {loading ? 'Connecting...' : 'Accept'}
@@ -918,9 +931,12 @@ const Calls = ({ walletAddress, onLogout }) => {
                   variant="outlined"
                   onClick={handleRejectCall}
                   sx={{
-                    borderColor: '#fff',
-                    color: '#fff',
-                    '&:hover': { borderColor: '#fff', background: 'rgba(255, 255, 255, 0.1)' }
+                    borderColor: 'rgba(248,250,252,0.8)',
+                    color: '#f9fafb',
+                    '&:hover': {
+                      borderColor: '#f9fafb',
+                      background: 'rgba(15,23,42,0.6)'
+                    }
                   }}
                 >
                   Decline
@@ -940,11 +956,10 @@ const Calls = ({ walletAddress, onLogout }) => {
           {/* Call Interface */}
           {inCall && (
             <Paper sx={{
-              background: callType === 'audio'
-                ? 'linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 50%, #1a1f3a 100%)'
-                : '#000',
-              borderRadius: '16px',
-              padding: '20px',
+              background: 'rgba(0,0,0,0.75)',
+              borderRadius: '24px',
+              border: '1px solid rgba(255,40,0,0.15)',
+              padding: '18px 18px 24px',
               position: 'relative',
               minHeight: callType === 'audio' ? '350px' : '500px'
             }}>
@@ -957,7 +972,7 @@ const Calls = ({ walletAddress, onLogout }) => {
                   style={{
                     width: '100%',
                     height: '500px',
-                    borderRadius: '12px',
+                    borderRadius: '18px',
                     background: '#000',
                     objectFit: 'cover',
                   }}
@@ -977,10 +992,10 @@ const Calls = ({ walletAddress, onLogout }) => {
                     right: '40px',
                     width: '240px',
                     height: '180px',
-                    borderRadius: '12px',
+                    borderRadius: '16px',
                     background: '#000',
                     objectFit: 'cover',
-                    border: '3px solid #8a66ff',
+                    border: '2px solid rgba(255,60,0,0.85)',
                     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)'
                   }}
                 />
@@ -994,18 +1009,18 @@ const Calls = ({ walletAddress, onLogout }) => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   minHeight: '280px',
-                  paddingTop: '30px'
+                  paddingTop: '26px'
                 }}>
                   <Box sx={{
                     position: 'relative',
-                    marginBottom: '20px'
+                    marginBottom: '18px'
                   }}>
                     <Avatar sx={{
                       width: 120,
                       height: 120,
-                      background: 'linear-gradient(135deg, #8a66ff 0%, #6644cc 100%)',
+                      background: 'linear-gradient(135deg, rgba(255,140,66,0.55) 0%, rgba(255,60,0,0.45) 100%)',
                       fontSize: '60px',
-                      boxShadow: '0 0 40px rgba(138, 102, 255, 0.4)',
+                      boxShadow: '0 0 40px rgba(248,113,22,0.5)',
                       animation: connected ? 'none' : 'pulse 2s infinite'
                     }}>
                       {getAvatarEmoji(selectedFriend.name)}
@@ -1016,31 +1031,31 @@ const Calls = ({ walletAddress, onLogout }) => {
                         position: 'absolute',
                         top: -8,
                         left: -8,
-                        width: 136,
-                        height: 136,
+                        width: 132,
+                        height: 132,
                         borderRadius: '50%',
-                        border: '2px solid rgba(138, 102, 255, 0.5)',
+                        border: '2px solid rgba(248,113,22,0.6)',
                         animation: 'pulse-ring 1.5s ease-out infinite'
                       }} />
                     )}
                   </Box>
-                  <Typography sx={{ color: '#fff', fontSize: '24px', fontWeight: 600, mb: 1 }}>
+                  <Typography sx={{ color: '#fff', fontSize: 20, fontWeight: 600, mb: 0.5 }}>
                     {selectedFriend.name}
                   </Typography>
                   <Typography sx={{
                     color: connected ? '#10b981' : 'rgba(255, 255, 255, 0.6)',
-                    fontSize: '16px',
+                    fontSize: 14,
                     fontWeight: connected ? 600 : 400
                   }}>
                     {connected ? '🔊 Audio Call Connected' : '📞 Connecting...'}
                   </Typography>
                   {isMuted && (
-                    <Typography sx={{ color: '#ef4444', fontSize: '14px', mt: 1 }}>
+                    <Typography sx={{ color: '#ef4444', fontSize: 13, mt: 1 }}>
                       🔇 You are muted
                     </Typography>
                   )}
                   {isDeafened && (
-                    <Typography sx={{ color: '#ff8c42', fontSize: '14px', mt: 0.5 }}>
+                    <Typography sx={{ color: '#ff8c42', fontSize: 13, mt: 0.5 }}>
                       🔇 Speaker muted
                     </Typography>
                   )}
@@ -1055,21 +1070,21 @@ const Calls = ({ walletAddress, onLogout }) => {
                 transform: 'translateX(-50%)',
                 display: 'flex',
                 gap: 2,
-                background: callType === 'video' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(138, 102, 255, 0.1)',
-                padding: '15px 30px',
-                borderRadius: '50px',
+                background: 'rgba(15,23,42,0.9)',
+                padding: '12px 26px',
+                borderRadius: '999px',
                 backdropFilter: 'blur(10px)',
                 marginTop: callType === 'audio' ? '20px' : '0'
               }}>
                 <IconButton
                   onClick={handleToggleMute}
                   sx={{
-                    background: isMuted ? '#ef4444' : 'rgba(138, 102, 255, 0.3)',
+                    background: isMuted ? '#ef4444' : 'rgba(255,255,255,0.06)',
                     color: '#fff',
                     width: 56,
                     height: 56,
                     '&:hover': {
-                      background: isMuted ? '#dc2626' : 'rgba(138, 102, 255, 0.5)',
+                      background: isMuted ? '#dc2626' : 'rgba(255,255,255,0.12)',
                     }
                   }}
                 >
@@ -1080,12 +1095,12 @@ const Calls = ({ walletAddress, onLogout }) => {
                   onClick={handleToggleDeafen}
                   title={isDeafened ? 'Unmute Speaker' : 'Mute Speaker'}
                   sx={{
-                    background: isDeafened ? '#ef4444' : 'rgba(138, 102, 255, 0.3)',
+                    background: isDeafened ? '#ef4444' : 'rgba(255,255,255,0.06)',
                     color: '#fff',
                     width: 56,
                     height: 56,
                     '&:hover': {
-                      background: isDeafened ? '#dc2626' : 'rgba(138, 102, 255, 0.5)',
+                      background: isDeafened ? '#dc2626' : 'rgba(255,255,255,0.12)',
                     }
                   }}
                 >
@@ -1096,12 +1111,12 @@ const Calls = ({ walletAddress, onLogout }) => {
                   <IconButton
                     onClick={handleToggleVideo}
                     sx={{
-                      background: isVideoOff ? '#ef4444' : 'rgba(138, 102, 255, 0.3)',
+                      background: isVideoOff ? '#ef4444' : 'rgba(255,255,255,0.06)',
                       color: '#fff',
                       width: 56,
                       height: 56,
                       '&:hover': {
-                        background: isVideoOff ? '#dc2626' : 'rgba(138, 102, 255, 0.5)',
+                        background: isVideoOff ? '#dc2626' : 'rgba(255,255,255,0.12)',
                       }
                     }}
                   >
@@ -1146,29 +1161,31 @@ const Calls = ({ walletAddress, onLogout }) => {
 
       <div style={styles.contentWrapper}>
         <div style={styles.header}>
-          <h1 style={styles.title}>📞 Voice & Video Calls</h1>
-          <p style={styles.subtitle}>
-            Make secure peer-to-peer calls with your friends
-          </p>
+          <Typography component="h1" sx={styles.title}>
+            📞 Calls
+          </Typography>
+          <Typography sx={styles.subtitle}>
+            Live WebRTC audio & video over your decentralized graph.
+          </Typography>
         </div>
 
         <Paper sx={{
-          background: 'linear-gradient(135deg, rgba(138, 102, 255, 0.1) 0%, rgba(255, 140, 66, 0.1) 100%)',
-          border: '1px solid rgba(138, 102, 255, 0.3)',
-          borderRadius: '16px',
-          padding: '30px',
+          background: 'rgba(0,0,0,0.55)',
+          border: '1px solid rgba(255,40,0,0.15)',
+          borderRadius: '24px',
+          padding: '22px',
           minHeight: '500px'
         }}>
           {loading ? (
             <Box sx={{ textAlign: 'center', padding: '60px' }}>
-              <CircularProgress sx={{ color: '#8a66ff' }} />
-              <Typography sx={{ color: '#fff', marginTop: '20px' }}>
+              <CircularProgress sx={{ color: '#ff8c42' }} />
+              <Typography sx={{ color: '#fff', marginTop: '16px' }}>
                 Loading friends...
               </Typography>
             </Box>
           ) : friends.length === 0 ? (
             <Box sx={{ textAlign: 'center', padding: '60px' }}>
-              <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '18px' }}>
+              <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 16 }}>
                 No friends added yet. Add friends to start calling!
               </Typography>
             </Box>
@@ -1176,9 +1193,9 @@ const Calls = ({ walletAddress, onLogout }) => {
             <>
               <Typography sx={{
                 color: '#fff',
-                fontSize: '20px',
+                fontSize: 18,
                 fontWeight: 600,
-                marginBottom: '20px'
+                marginBottom: '16px'
               }}>
                 Select a friend to call
               </Typography>

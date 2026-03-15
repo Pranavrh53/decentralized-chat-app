@@ -285,6 +285,62 @@ export const loadFriendsFromGun = (walletAddress) => {
   });
 };
 
+/**
+ * Presence / online status using GunDB.
+ * Each user periodically updates their lastSeen timestamp under `presence`.
+ * Peers can subscribe to this node to derive online/offline status.
+ */
+export const setPresenceHeartbeat = (walletAddress, intervalMs = 5000) => {
+  if (!walletAddress) return () => {};
+  const addr = walletAddress.toLowerCase();
+  let stopped = false;
+
+  const beat = () => {
+    if (stopped) return;
+    chatDB
+      .get('presence')
+      .get(addr)
+      .put({ address: addr, lastSeen: new Date().toISOString() });
+  };
+
+  // send immediately, then on interval
+  beat();
+  const handle = setInterval(beat, intervalMs);
+
+  return () => {
+    stopped = true;
+    clearInterval(handle);
+  };
+};
+
+export const subscribeToPresence = (callback) => {
+  const seen = new Set();
+  let active = true;
+
+  const ref = chatDB
+    .get('presence')
+    .map()
+    .on((data, key) => {
+      if (!active) return;
+      if (!data || typeof data !== 'object' || !data.lastSeen) return;
+      const { _, ...clean } = data;
+      const addr = clean.address || key;
+      if (!addr) return;
+      const id = `${addr}:${clean.lastSeen}`;
+      if (seen.has(id)) return;
+      seen.add(id);
+      callback({
+        address: addr,
+        lastSeen: clean.lastSeen
+      });
+    });
+
+  return () => {
+    active = false;
+    chatDB.get('presence').map().off();
+  };
+};
+
 // Export the gun instance for direct use if needed
 export { gun, chatDB };
 
@@ -295,6 +351,8 @@ export default {
   storeFriendsInGun,
   loadFriendsFromGun,
   getChatPairKey,
+  setPresenceHeartbeat,
+  subscribeToPresence,
   gun,
   chatDB,
 };

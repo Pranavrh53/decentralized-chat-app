@@ -132,7 +132,7 @@ function Chat({ walletAddress }) {
     };
   }, [account, receiver]);
 
-  // Load messages from all decentralized sources
+  // Load messages strictly from blockchain + IPFS (source of truth)
   const loadMessages = useCallback(async () => {
     if (!account || !receiver) {
       console.log('⚠️ Waiting for account and receiver...');
@@ -142,99 +142,60 @@ function Chat({ walletAddress }) {
     try {
       setLoading(true);
       setError(null);
-      
-      // STEP 1: Load from server + localStorage (fast, always available)
-      console.log('📦 Loading messages from server + localStorage...');
-      const mergedMessages = await loadMessagesFromAllSources(account, receiver);
-      
-      if (mergedMessages.length > 0) {
-        console.log(`📦 Found ${mergedMessages.length} messages from server + local`);
-        // Ensure incoming flag is properly set
-        const processed = mergedMessages.map(msg => ({
-          ...msg,
-          incoming: msg.incoming !== undefined ? msg.incoming : 
-            (msg.sender || msg.from || '').toLowerCase() !== account.toLowerCase()
-        }));
-        setMessages(processed);
-      }
-      
-      // STEP 2: Try to load from blockchain + IPFS (if MetaMask available)
-      if (window.ethereum) {
-        try {
-          console.log('📜 Loading chat history from blockchain...');
-          const chatHistory = await loadChatHistory(account, receiver);
-          
-          if (chatHistory.length > 0) {
-            console.log(`✅ Found ${chatHistory.length} messages in blockchain`);
-            
-            // Load message content from IPFS
-            const messagesWithContent = await Promise.all(
-              chatHistory.map(async (msg) => {
-                try {
-                  if (msg.ipfsHash) {
-                    const ipfsData = await retrieveFromIPFS(msg.ipfsHash);
-                    return {
-                      ...msg,
-                      content: ipfsData.content || '',
-                      text: ipfsData.content || '',
-                      time: new Date(msg.timestamp * 1000),
-                      incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
-                      status: 'delivered'
-                    };
-                  } else {
-                    return {
-                      ...msg,
-                      content: '(Message content not available)',
-                      text: '(Message content not available)',
-                      time: new Date(msg.timestamp * 1000),
-                      incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
-                      status: 'delivered'
-                    };
-                  }
-                } catch (error) {
-                  console.warn(`Failed to load content for message ${msg.id}:`, error);
-                  return null;
-                }
-              })
-            );
-            
-            // Filter out failed loads and merge with existing messages
-            const validBlockchainMsgs = messagesWithContent.filter(Boolean);
-            
-            if (validBlockchainMsgs.length > 0) {
-              setMessages(prev => {
-                const combined = [...prev];
-                validBlockchainMsgs.forEach(bcMsg => {
-                  const exists = combined.some(m => 
-                    m.id === bcMsg.id || 
-                    ((m.text || m.content) === (bcMsg.text || bcMsg.content) && 
-                     Math.abs(new Date(m.time).getTime() - new Date(bcMsg.time).getTime()) < 5000)
-                  );
-                  if (!exists) combined.push(bcMsg);
-                });
-                combined.sort((a, b) => new Date(a.time || a.timestamp) - new Date(b.time || b.timestamp));
-                // Save merged result
-                const chatKey = getChatKey(account, receiver);
-                localStorage.setItem(chatKey, JSON.stringify(combined));
-                return combined;
-              });
+
+      console.log('📜 Loading chat history from blockchain (strict mode)...');
+      const chatHistory = await loadChatHistory(account, receiver);
+
+      if (chatHistory.length === 0) {
+        console.log('ℹ️ No on-chain messages found for this pair.');
+        setMessages([]);
+      } else {
+        console.log(`✅ Found ${chatHistory.length} messages on-chain, resolving IPFS...`);
+
+        const messagesWithContent = await Promise.all(
+          chatHistory.map(async (msg) => {
+            try {
+              if (msg.ipfsHash) {
+                const ipfsData = await retrieveFromIPFS(msg.ipfsHash);
+                return {
+                  ...msg,
+                  content: ipfsData.content || '',
+                  text: ipfsData.content || '',
+                  time: new Date(msg.timestamp * 1000),
+                  incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+                  status: 'delivered'
+                };
+              } else {
+                return {
+                  ...msg,
+                  content: '(Message content not available)',
+                  text: '(Message content not available)',
+                  time: new Date(msg.timestamp * 1000),
+                  incoming: msg.sender.toLowerCase() !== account.toLowerCase(),
+                  status: 'delivered'
+                };
+              }
+            } catch (error) {
+              console.warn(`Failed to load content for message ${msg.id}:`, error);
+              return null;
             }
-          }
-        } catch (bcErr) {
-          console.warn('⚠️ Blockchain loading failed (non-critical):', bcErr.message);
-        }
+          })
+        );
+
+        const validBlockchainMsgs = messagesWithContent.filter(Boolean);
+        validBlockchainMsgs.sort(
+          (a, b) => new Date(a.time || a.timestamp) - new Date(b.time || b.timestamp)
+        );
+
+        setMessages(validBlockchainMsgs);
+
+        // Optional local cache for faster subsequent loads (safe to clear)
+        const chatKey = getChatKey(account, receiver);
+        localStorage.setItem(chatKey, JSON.stringify(validBlockchainMsgs));
       }
-      
     } catch (err) {
       console.error("❌ Error loading messages:", err);
       setError(`Failed to load messages: ${err.message}`);
-      
-      // Even on error, try to show localStorage messages
-      const chatKey = getChatKey(account, receiver);
-      const localMessages = JSON.parse(localStorage.getItem(chatKey) || '[]');
-      if (localMessages.length > 0) {
-        setMessages(localMessages);
-      }
     } finally {
       setLoading(false);
     }
@@ -1062,6 +1023,13 @@ function Chat({ walletAddress }) {
               InputProps={{
                 sx: {
                   ...shellStyles.textField,
+                  color: '#ffffff',
+                  '& .MuiInputBase-input': {
+                    color: '#ffffff'
+                  },
+                  '& .MuiInputBase-input::placeholder': {
+                    color: 'rgba(255,255,255,0.5)'
+                  },
                   '& fieldset': { borderColor: 'rgba(255,255,255,0.14)' },
                   '&:hover fieldset': { borderColor: 'rgba(255,60,0,0.4)' },
                   '&.Mui-focused fieldset': { borderColor: 'rgba(255,60,0,0.8)' },

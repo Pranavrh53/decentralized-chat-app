@@ -405,3 +405,54 @@ export const loadChatHistory = async (user1, user2) => {
     return [];
   }
 };
+
+/**
+ * Fetch recent transactions for an address on Sepolia using the connected RPC.
+ * Scans backwards from the latest block and returns up to `limit` transactions
+ * where `from` or `to` matches the given address.
+ * @param {string} address
+ * @param {number} limit
+ */
+export const getRecentTransactions = async (address, limit = 5) => {
+  if (!address) return [];
+
+  try {
+    const { web3 } = await initWeb3();
+    const target = address.toLowerCase();
+    const latest = await web3.eth.getBlockNumber();
+
+    const maxBlocksToScan = 2000;
+    const results = [];
+
+    for (let i = latest; i >= 0 && results.length < limit && i > latest - maxBlocksToScan; i--) {
+      const block = await web3.eth.getBlock(i, true);
+      if (!block || !Array.isArray(block.transactions)) continue;
+
+      block.transactions.forEach((tx) => {
+        if (results.length >= limit) return;
+        const from = tx.from ? tx.from.toLowerCase() : '';
+        const to = tx.to ? tx.to.toLowerCase() : '';
+
+        if (from === target || to === target) {
+          let type = 'contract';
+          if (from === target && to !== target) type = 'send';
+          else if (from !== target && to === target) type = 'receive';
+
+          results.push({
+            hash: tx.hash,
+            from: tx.from,
+            to: tx.to,
+            gasUsed: tx.gas || '',
+            timeStamp: Number(block.timestamp),
+            type
+          });
+        }
+      });
+    }
+
+    return results;
+  } catch (error) {
+    console.error('Error fetching recent transactions via RPC:', error);
+    return [];
+  }
+};

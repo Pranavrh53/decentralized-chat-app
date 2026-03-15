@@ -62,6 +62,43 @@ export const uploadToIPFS = async (messageContent, metadata = {}) => {
 };
 
 /**
+ * Upload an arbitrary JSON object to IPFS via Pinata.
+ * This is used for profile metadata and other structured data.
+ * @param {object} jsonObject - Plain JS object to pin as JSON
+ * @returns {Promise<string>} IPFS hash (CID)
+ */
+export const uploadJsonToIPFS = async (jsonObject) => {
+  try {
+    const pinataApiKey = process.env.REACT_APP_PINATA_API_KEY;
+    const pinataSecretKey = process.env.REACT_APP_PINATA_SECRET_KEY;
+
+    if (!pinataApiKey || !pinataSecretKey) {
+      console.warn('⚠️ Pinata credentials not found, cannot upload JSON to IPFS');
+      throw new Error('IPFS not configured. Please set Pinata API keys.');
+    }
+
+    const response = await axios.post(
+      `${PINATA_API_URL}/pinning/pinJSONToIPFS`,
+      jsonObject,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          pinata_api_key: pinataApiKey,
+          pinata_secret_api_key: pinataSecretKey
+        }
+      }
+    );
+
+    const ipfsHash = response.data.IpfsHash;
+    console.log('✅ JSON uploaded to IPFS:', ipfsHash);
+    return ipfsHash;
+  } catch (error) {
+    console.error('❌ Error uploading JSON to IPFS:', error);
+    throw new Error(`Failed to upload JSON to IPFS: ${error.message}`);
+  }
+};
+
+/**
  * Retrieve message content from IPFS
  * @param {string} ipfsHash - The IPFS hash (CID)
  * @returns {Promise<object>} Message object with content and metadata
@@ -275,6 +312,7 @@ export const isFileSizeAcceptable = (fileSize) => {
 export default {
   uploadToIPFS,
   retrieveFromIPFS,
+  uploadJsonToIPFS,
   encryptMessage,
   decryptMessage,
   isIPFSConfigured,
