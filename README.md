@@ -10,7 +10,7 @@
 [![Web3.js](https://img.shields.io/badge/Web3.js-4.16-F16822?logo=web3dotjs)](https://web3js.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 
-> **~85% Decentralized** — Only the signaling server is centralized. All messages, files, and data flow peer-to-peer or through blockchain/IPFS.
+Deployed Link- https://decentralized-chat-app-one.vercel.app/
 
 [Features](#-features) · [Architecture](#-architecture) · [Getting Started](#-getting-started) · [Smart Contract](#-smart-contract) · [Tech Stack](#-tech-stack) · [Guides](#-guides)
 
